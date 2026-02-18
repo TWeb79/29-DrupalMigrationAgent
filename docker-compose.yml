@@ -139,8 +139,19 @@ services:
       DRUPAL_API_USER: apiuser
       DRUPAL_API_PASS: apiuser
       REDIS_URL: redis://redis:6379
+      # LLM Provider Configuration
+      # Options: anthropic, openai, ollama
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      # Anthropic Configuration
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      # OpenAI Configuration
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      # Ollama Configuration (when LLM_PROVIDER=ollama)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
     depends_on:
       - drupal
       - redis
@@ -149,6 +160,23 @@ services:
     networks:
       - drupal_net
 
+  # ─────────────────────────────────────────
+  # Ollama — Local LLM (optional)
+  # Only needed if LLM_PROVIDER=ollama
+  # ─────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: drupal_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - drupal_net
+    profiles:
+      - ollama
+
 volumes:
   db_data:
   drupal_modules:
@@ -156,6 +184,7 @@ volumes:
   drupal_themes:
   drupal_sites:
   redis_data:
+  ollama_data:
 
 networks:
   drupal_net:

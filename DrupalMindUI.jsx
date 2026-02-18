@@ -85,12 +85,20 @@ function PulsingDot({ color }) {
 
 const sections = ["Discovery", "Knowledge", "Build", "Theme", "Content", "Verify", "QA"];
 
+// LLM Provider options
+const LLM_PROVIDERS = [
+  { id: "anthropic", label: "Claude (Anthropic)", icon: "🧠" },
+  { id: "openai", label: "GPT-4 (OpenAI)", icon: "🤖" },
+  { id: "ollama", label: "Ollama (Local)", icon: "💻" },
+];
+
 export default function DrupalMind() {
   const [url, setUrl] = useState("https://example-agency.com");
   const [mode, setMode] = useState("migrate");
   const [started, setStarted] = useState(true);
   const [expandedLog, setExpandedLog] = useState(null);
   const [activeSection, setActiveSection] = useState("Build");
+  const [llmProvider, setLlmProvider] = useState("anthropic");
   const logRef = useRef(null);
 
   const doneTasks = MOCK_TASKS.filter(t => t.status === "done").length;
@@ -209,6 +217,41 @@ export default function DrupalMind() {
                 </label>
               ))}
             </div>
+            
+            {/* LLM Provider Selection */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #1e2533" }}>
+              <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
+                AI Model
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {LLM_PROVIDERS.map(provider => (
+                  <button
+                    key={provider.id}
+                    onClick={() => setLlmProvider(provider.id)}
+                    style={{
+                      flex: 1,
+                      padding: "6px 4px",
+                      borderRadius: 6,
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      background: llmProvider === provider.id ? "#6366f1" : "#1e2533",
+                      color: llmProvider === provider.id ? "#fff" : "#64748b",
+                      transition: "all 0.15s",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>{provider.icon}</span>
+                    <span>{provider.label.split(" (")[0]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            
             <button
               onClick={() => setStarted(true)}
               style={{
