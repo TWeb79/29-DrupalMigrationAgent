@@ -90,8 +90,6 @@ services:
   # ─────────────────────────────────────────
   # DrupalMind UI — Agent Control Panel
   # http://localhost:5510
-  # To rebuild ONLY this service (preserving db/drupal):
-  #   docker-compose up -d --build drupalmind-ui
   # ─────────────────────────────────────────
   drupalmind-ui:
     build:
@@ -105,7 +103,6 @@ services:
       DRUPAL_API_URL: http://drupal
       DRUPAL_API_USER: apiuser
       DRUPAL_API_PASS: apiuser
-      AGENTS_API_URL: http://drupalmind_agents:8000
     depends_on:
       - drupal
     networks:
@@ -128,8 +125,6 @@ services:
 
   # ─────────────────────────────────────────
   # DrupalMind Agents — Python agent runtime
-  # To rebuild ONLY this service (preserving db/drupal):
-  #   docker-compose up -d --build drupalmind-agents
   # ─────────────────────────────────────────
   drupalmind-agents:
     build:

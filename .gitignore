@@ -1,6 +1,9 @@
 # Secrets
 .env
 
+# Docker data volumes (persistent local data)
+mnt/
+
 # Python
 __pycache__/
 *.pyc

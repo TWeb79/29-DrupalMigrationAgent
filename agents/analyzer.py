@@ -6,12 +6,16 @@ produces a Site Blueprint stored in shared memory.
 import json
 import re
 import asyncio
+import logging
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 from base_agent import BaseAgent
+
+# Configure logging for AnalyzerAgent
+logger = logging.getLogger("drupalmind.analyzer")
 
 
 class AnalyzerAgent(BaseAgent):
@@ -25,11 +29,17 @@ class AnalyzerAgent(BaseAgent):
         Analyze the source (URL or description) and return a Site Blueprint.
         mode: "url" | "description"
         """
+        logger.info(f"══════════════════════════════════════════════════════════════")
+        logger.info(f"║ ANALYZER AGENT START")
+        logger.info(f"║ Mode: {mode} | Source: {source[:100]}...")
+        logger.info(f"══════════════════════════════════════════════════════════════")
         await self.log("Starting analysis...", detail=f"Source: {source}")
 
         if mode == "description":
+            logger.info("Using LLM to analyze description...")
             blueprint = await asyncio.to_thread(self._analyze_description, source)
         else:
+            logger.info("Scraping URL for analysis...")
             blueprint = await asyncio.to_thread(self._analyze_url, source)
 
         self.memory.set_blueprint(blueprint)

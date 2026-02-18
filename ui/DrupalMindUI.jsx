@@ -131,16 +131,110 @@ const LLM_PROVIDERS = [
 export default function DrupalMind() {
   const [url, setUrl] = useState("https://example-agency.com");
   const [mode, setMode] = useState("migrate");
-  const [started, setStarted] = useState(true);
+  const [started, setStarted] = useState(false);
   const [expandedLog, setExpandedLog] = useState(null);
   const [activeSection, setActiveSection] = useState("Build");
   const [llmProvider, setLlmProvider] = useState("anthropic");
   const [theme, setTheme] = useState("dark");
+  
+  // Real-time log state
+  const [logs, setLogs] = useState([]);
+  const [jobId, setJobId] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [buildStatus, setBuildStatus] = useState("idle");
+  const wsRef = useRef(null);
   const logRef = useRef(null);
 
   const t = THEMES[theme];
   const doneTasks = MOCK_TASKS.filter(task => task.status === "done").length;
   const progress = Math.round((doneTasks / MOCK_TASKS.length) * 100);
+
+  // Connect to WebSocket when jobId is set
+  useEffect(() => {
+    if (!jobId) return;
+    
+    // Use relative WebSocket URL (proxied through nginx)
+    const wsUrl = `ws://${window.location.host}/ws/${jobId}`;
+    
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    
+    ws.onopen = () => {
+      setWsConnected(true);
+      console.log('[WS] Connected to job:', jobId);
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('[WS] Received:', data);
+        
+        if (data.type === 'log') {
+          setLogs(prev => [...prev, { 
+            id: Date.now(), 
+            agent: data.agent, 
+            msg: data.message, 
+            status: data.status || 'active', 
+            detail: data.detail || '' 
+          }]);
+        } else if (data.type === 'started') {
+          setBuildStatus('running');
+        } else if (data.type === 'completed' || data.type === 'done') {
+          setBuildStatus('done');
+          setStarted(false);
+        } else if (data.type === 'error') {
+          setBuildStatus('error');
+        }
+      } catch (e) {
+        console.error('[WS] Parse error:', e);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('[WS] Error:', error);
+    };
+    
+    ws.onclose = () => {
+      setWsConnected(false);
+      console.log('[WS] Disconnected');
+    };
+    
+    return () => {
+      ws.close();
+    };
+  }, [jobId]);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  // Start a build job via REST API
+  const startBuild = async () => {
+    try {
+      setStarted(true);
+      setBuildStatus('starting');
+      setLogs([]);
+      
+      // Use relative API URL (proxied through nginx)
+      const response = await fetch('/api/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: url, mode: mode })
+      });
+      
+      const data = await response.json();
+      console.log('[API] Build started:', data);
+      setJobId(data.job_id);
+      setBuildStatus('running');
+    } catch (error) {
+      console.error('[API] Error starting build:', error);
+      setBuildStatus('error');
+      setStarted(false);
+    }
+  };
 
   return (
     <div style={{
@@ -202,8 +296,8 @@ export default function DrupalMind() {
             {theme === "dark" ? "🌙" : "☀️"}
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.textSecondary }}>
-            <PulsingDot color={t.success} />
-            <span>3 agents active</span>
+            <PulsingDot color={wsConnected ? t.success : t.textMuted} />
+            <span>{wsConnected ? `Connected (Job: ${jobId || '-'})` : "Disconnected"}</span>
           </div>
           <div style={{
             background: t.primary + "22", color: t.primary, border: `1px solid ${t.primary}33`,
@@ -309,7 +403,8 @@ export default function DrupalMind() {
             </div>
             
             <button
-              onClick={() => setStarted(true)}
+              onClick={startBuild}
+              disabled={started}
               style={{
                 width: "100%", marginTop: 12, padding: "9px 0",
                 background: started ? t.bgTertiary : "linear-gradient(135deg, #6366f1, #8b5cf6)",
@@ -388,39 +483,49 @@ export default function DrupalMind() {
               <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1, textTransform: "uppercase" }}>
                 Live Agent Log
               </span>
-              <span style={{ fontSize: 11, color: t.textMuted }}>{MOCK_LOGS.length} entries</span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
+                {wsConnected ? "🟢" : "🔴"} {logs.length} entries
+              </span>
             </div>
-            {MOCK_LOGS.map((log, i) => {
-              const agent = AGENTS[log.agent];
-              const isExpanded = expandedLog === log.id;
-              const isActive = log.status === "active";
-              return (
-                <div
-                  key={log.id}
-                  className="log-row"
-                  onClick={() => setExpandedLog(isExpanded ? null : log.id)}
-                  style={{
-                    padding: "8px 20px", cursor: "pointer",
-                    borderBottom: `1px solid ${t.border}`,
-                    animation: `slideIn 0.2s ease ${i * 0.03}s both`,
-                    background: isExpanded ? "#ffffff06" : "transparent",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 10, color: "#334155", fontFamily: "monospace", minWidth: 50 }}>
-                      09:4{String(i).padStart(2,"0")}
-                    </span>
-                    <AgentBadge agentKey={log.agent} />
-                    <span style={{ fontSize: 12, color: isActive ? t.text : t.textSecondary, flex: 1 }}>
-                      {isActive && <><PulsingDot color={agent?.color || t.text} /> </>}
-                      {log.msg}
-                    </span>
-                    {log.detail && (
-                      <span style={{ fontSize: 10, color: "#334155" }}>{isExpanded ? "▲" : "▼"}</span>
-                    )}
-                  </div>
-                  {isExpanded && log.detail && (
-                    <div style={{
+            {logs.length === 0 ? (
+              <div style={{ padding: 40, textAlign: "center", color: t.textMuted }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
+                <div style={{ fontSize: 12 }}>
+                  {started ? "Waiting for agent logs..." : "Click 'Start Build' to begin"}
+                </div>
+              </div>
+            ) : (
+              logs.map((log, i) => {
+                const agent = AGENTS[log.agent];
+                const isExpanded = expandedLog === log.id;
+                const isActive = log.status === "active";
+                return (
+                  <div
+                    key={log.id}
+                    className="log-row"
+                    onClick={() => setExpandedLog(isExpanded ? null : log.id)}
+                    style={{
+                      padding: "8px 20px", cursor: "pointer",
+                      borderBottom: `1px solid ${t.border}`,
+                      animation: `slideIn 0.2s ease ${i * 0.03}s both`,
+                      background: isExpanded ? "#ffffff06" : "transparent",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 10, color: "#334155", fontFamily: "monospace", minWidth: 50 }}>
+                        {new Date(log.id).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                      <AgentBadge agentKey={log.agent} />
+                      <span style={{ fontSize: 12, color: isActive ? t.text : t.textSecondary, flex: 1 }}>
+                        {isActive && <><PulsingDot color={agent?.color || t.text} /> </>}
+                        {log.msg}
+                      </span>
+                      {log.detail && (
+                        <span style={{ fontSize: 10, color: "#334155" }}>{isExpanded ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                    {isExpanded && log.detail && (
+                      <div style={{
                       marginTop: 6, marginLeft: 60, padding: "8px 12px",
                       background: t.bgSecondary, borderRadius: 6, borderLeft: `2px solid ${agent?.color}44`,
                       fontSize: 11, color: t.textSecondary, fontFamily: "DM Mono, monospace",
@@ -429,8 +534,8 @@ export default function DrupalMind() {
                     </div>
                   )}
                 </div>
-              );
-            })}
+              )}
+            )}
           </div>
 
           {/* Task Board */}

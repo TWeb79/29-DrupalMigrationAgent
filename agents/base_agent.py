@@ -8,12 +8,21 @@ All agents inherit from this. Provides:
 import os
 import json
 import asyncio
+import logging
 from typing import Any, Callable, Optional
 import anthropic
 import openai
 
 from memory import memory as shared_memory
 from drupal_client import DrupalClient
+
+# Configure detailed logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("drupalmind")
 
 
 # LLM Provider Configuration
@@ -99,12 +108,35 @@ class LLMProvider:
         Call LLM with tools. Returns response with stop_reason and content.
         Unified interface for all providers.
         """
+        logger.info(f"┌──────────────────────────────────────────────────────────────────────")
+        logger.info(f"│ LLM REQUEST | Provider: {self.get_provider_name()} | Model: {model}")
+        logger.info(f"│ System: {system[:100]}...")
+        logger.info(f"│ Messages: {len(messages)} | Tools: {len(tools) if tools else 0}")
+        logger.info(f"└──────────────────────────────────────────────────────────────────────")
+        
         if self.provider == "anthropic":
-            return self._call_anthropic(model, max_tokens, system, messages, tools)
+            result = self._call_anthropic(model, max_tokens, system, messages, tools)
         elif self.provider == "openai":
-            return self._call_openai(model, max_tokens, system, messages, tools)
+            result = self._call_openai(model, max_tokens, system, messages, tools)
         elif self.provider == "ollama":
-            return self._call_ollama(model, max_tokens, system, messages, tools)
+            result = self._call_ollama(model, max_tokens, system, messages, tools)
+        else:
+            result = {"content": "", "stop_reason": "error", "tool_calls": []}
+        
+        logger.info(f"┌──────────────────────────────────────────────────────────────────────")
+        logger.info(f"│ LLM RESPONSE | Stop Reason: {result.get('stop_reason', 'unknown')}")
+        content = result.get('content', '')
+        logger.info(f"│ Content Length: {len(content)} chars")
+        if content:
+            logger.info(f"│ Content Preview: {content[:200]}...")
+        tool_calls = result.get('tool_calls', [])
+        if tool_calls:
+            logger.info(f"│ Tool Calls: {len(tool_calls)}")
+            for tc in tool_calls:
+                logger.info(f"│   - {tc.get('name', 'unknown')}: {str(tc.get('input', {}))[:100]}...")
+        logger.info(f"└──────────────────────────────────────────────────────────────────────")
+        
+        return result
     
     def _call_anthropic(self, model: str, max_tokens: int, system: str, messages: list, tools: list) -> dict:
         """Call Anthropic API."""
@@ -383,12 +415,18 @@ class BaseAgent:
         Call from async code via asyncio.to_thread().
         Uses unified LLM provider for Anthropic, OpenAI, or Ollama.
         """
+        logger.info(f"══════════════════════════════════════════════════════════════════")
+        logger.info(f"║ AGENT START | {self.label} | System: {system[:50]}...")
+        logger.info(f"║ Messages: {len(messages)} | Tools: {len(tools) if tools else 0}")
+        logger.info(f"══════════════════════════════════════════════════════════════════")
+        
         iterations = max_iterations or self.MAX_TOOL_ITERATIONS
         
         # Get model from provider
         model = self.llm.get_model()
         
-        for _ in range(iterations):
+        for i in range(iterations):
+            logger.info(f"--- Iteration {i+1}/{iterations} ---")
             # Use unified LLM provider
             response = self.llm.call_with_tools(
                 model=model,
@@ -399,6 +437,8 @@ class BaseAgent:
             )
 
             if response["stop_reason"] == "end_turn":
+                logger.info(f"✓ Final response received ({len(response['content'])} chars)")
+                logger.info(f"Preview: {response['content'][:200]}...")
                 return response["content"]
 
             if response["stop_reason"] == "tool_use":
@@ -406,26 +446,40 @@ class BaseAgent:
                 messages.append({"role": "assistant", "content": response["content"]})
                 tool_results = []
                 
+                logger.info(f"🔧 Tool calls: {len(response['tool_calls'])}")
                 for tc in response["tool_calls"]:
+                    tool_name = tc["name"]
+                    tool_input = tc["input"]
+                    logger.info(f"  → Executing: {tool_name}")
+                    logger.debug(f"     Input: {json.dumps(tool_input)[:200]}...")
                     try:
-                        result = self._dispatch_tool(tc["name"], tc["input"])
+                        result = self._dispatch_tool(tool_name, tool_input)
+                        logger.info(f"  ✓ Result: {str(result)[:100]}...")
                     except Exception as e:
                         result = f"ERROR: {e}"
+                        logger.error(f"  ✗ Error: {e}")
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": tc["id"],
                         "content": str(result)[:8000],
                     })
                 messages.append({"role": "user", "content": tool_results})
+                messages.append({"role": "user", "content": tool_results})
             else:
                 break
+        logger.warning("⚠ Agent loop ended without final response (max iterations reached)")
         return "Agent loop ended without final response"
 
     def _dispatch_tool(self, name: str, inputs: dict) -> Any:
         """Route tool calls to methods. Override / extend in subclasses."""
+        logger.info(f"╔══════════════════════════════════════════════════════════════")
+        logger.info(f"║ TOOL DISPATCH | {name}")
+        logger.info(f"║ Inputs: {json.dumps(inputs)[:200]}...")
+        logger.info(f"╚══════════════════════════════════════════════════════════════")
         method = getattr(self, f"_tool_{name}", None)
         if method:
             return method(**inputs)
+        logger.error(f"Unknown tool: {name}")
         return f"Unknown tool: {name}"
 
     # ── Common tools available to all agents ─────────────────

@@ -1,4 +1,4 @@
-# 🧠 DrupalMind — Agentic AI Website Builder
+# 🧠 DrupalMind — Agentic AI Website Builder (In Development)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Drupal-10+-0678BE?style=for-the-badge&logo=drupal" alt="Drupal 10">
@@ -110,14 +110,14 @@ DrupalMind is a multi-agent AI system that takes a source website URL or natural
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/drupal-mind.git
-cd drupal-mind
+git clone https://github.com/TWeb79/29-DrupalMigrationAgent.git
+cd 29-DrupalMigrationAgent
 ```
 
 ### 2. Configure Environment
 
 ```bash
-cp .env.example .env
+cp .env_example .env
 # Edit .env with your preferred LLM provider
 ```
 

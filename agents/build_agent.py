@@ -5,7 +5,11 @@ Uses the LLM tool-use loop to reason about what to build and how.
 """
 import json
 import asyncio
+import logging
 from base_agent import BaseAgent
+
+# Configure logging for BuildAgent
+logger = logging.getLogger("drupalmind.build")
 
 
 SYSTEM_PROMPT = """You are the BuildAgent for DrupalMind, an AI system that builds Drupal websites.
@@ -132,6 +136,10 @@ class BuildAgent(BaseAgent):
 
     async def build_site(self) -> dict:
         """Build the full site from the blueprint."""
+        logger.info("══════════════════════════════════════════════════════════════")
+        logger.info("║ BUILD AGENT STARTING")
+        logger.info("══════════════════════════════════════════════════════════════")
+        
         blueprint = self.memory.get_blueprint()
         if not blueprint:
             await self.log_error("No blueprint found — run AnalyzerAgent first")
@@ -142,6 +150,10 @@ class BuildAgent(BaseAgent):
             f"{len(blueprint.get('pages', []))} pages to build"
         )
 
+        logger.info(f"Site title: {blueprint.get('title', 'site')}")
+        logger.info(f"Pages to build: {len(blueprint.get('pages', []))}")
+        logger.info(f"Blueprint sections: {len(blueprint.get('sections', []))}")
+        
         result = await asyncio.to_thread(self._run_build_loop, blueprint)
         built = self.memory.get_or_default("built_pages", [])
         await self.log_done(
@@ -231,6 +243,13 @@ class BuildAgent(BaseAgent):
             }
         ]
 
+        logger.info("══════════════════════════════════════════════════════════════")
+        logger.info("║ BUILD AGENT - LLM REQUEST")
+        logger.info(f"║ System Prompt ({len(SYSTEM_PROMPT)} chars): {SYSTEM_PROMPT[:100]}...")
+        logger.info(f"║ User Message: {messages[0]['content'][:150]}...")
+        logger.info(f"║ Tools available: {len(tools)}")
+        logger.info("══════════════════════════════════════════════════════════════")
+        
         result = self.call_llm_with_tools(SYSTEM_PROMPT, messages, tools)
         return {"result": result, "built": self.memory.get_or_default("built_pages", [])}
 

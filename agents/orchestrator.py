@@ -7,6 +7,7 @@ import json
 import asyncio
 import time
 import uuid
+import logging
 from typing import Callable, Optional
 
 from memory import memory
@@ -14,6 +15,9 @@ from analyzer import AnalyzerAgent
 from train_agent import TrainAgent
 from build_agent import BuildAgent
 from agents import ThemeAgent, ContentAgent, TestAgent, QAAgent
+
+# Configure logging for OrchestratorAgent
+logger = logging.getLogger("drupalmind.orchestrator")
 
 
 BUILD_PHASES = [
@@ -119,6 +123,11 @@ class OrchestratorAgent:
         source: URL or description
         mode: "url" | "description"
         """
+        logger.info(f"══════════════════════════════════════════════════════════════")
+        logger.info(f"║ ORCHESTRATOR STARTING | Job ID: {job_id or 'auto'}")
+        logger.info(f"║ Source: {source[:80]}... | Mode: {mode}")
+        logger.info(f"══════════════════════════════════════════════════════════════")
+        
         self.job_id = job_id or str(uuid.uuid4())[:8]
         memory.clear_job(self.job_id)
 
@@ -136,36 +145,48 @@ class OrchestratorAgent:
 
         try:
             # ── Phase 1: Analysis ──────────────────────────────
+            logger.info("PHASE 1: ANALYSIS - Starting...")
             await self._mark_task(1, "active")
             blueprint = await self.analyzer.analyze(source, mode)
             await self._mark_task(1, "done", f"{len(blueprint.get('pages', []))} pages found")
+            logger.info(f"PHASE 1: ANALYSIS - Complete ({len(blueprint.get('pages', []))} pages)")
 
             # ── Phase 2: Training ──────────────────────────────
+            logger.info("PHASE 2: TRAINING - Starting...")
             await self._mark_task(2, "active")
             await self.trainer.train()
             await self._mark_task(2, "done", f"{len(memory.list_components())} components documented")
+            logger.info(f"PHASE 2: TRAINING - Complete")
 
             # ── Phase 3: Build ─────────────────────────────────
+            logger.info("PHASE 3: BUILD - Starting...")
             await self._mark_task(3, "active")
             build_result = await self.builder.build_site()
             built_pages = memory.get_or_default("built_pages", [])
             await self._mark_task(3, "done", f"{len(built_pages)} pages built")
+            logger.info(f"PHASE 3: BUILD - Complete ({len(built_pages)} pages)")
 
             # ── Phase 4: Theme ─────────────────────────────────
+            logger.info("PHASE 4: THEME - Starting...")
             await self._mark_task(4, "active")
             theme_result = await self.themer.apply_theme()
             await self._mark_task(4, "done", "CSS applied")
+            logger.info("PHASE 4: THEME - Complete")
 
             # ── Phase 5: Content ───────────────────────────────
+            logger.info("PHASE 5: CONTENT - Starting...")
             await self._mark_task(5, "active")
             content_result = await self.content.migrate_content()
             await self._mark_task(5, "done", f"{content_result.get('created', 0)} items migrated")
+            logger.info(f"PHASE 5: CONTENT - Complete")
 
             # ── Phase 6: Test ──────────────────────────────────
+            logger.info("PHASE 6: TEST - Starting...")
             await self._mark_task(6, "active")
             test_result = await self.tester.run_tests()
             score = test_result.get("overall_score", 0)
             await self._mark_task(6, "done", f"{score}% match score")
+            logger.info(f"PHASE 6: TEST - Complete (Score: {score}%)")
 
             # If tests failed, attempt one more build pass
             if not test_result.get("ready_for_qa", False):
