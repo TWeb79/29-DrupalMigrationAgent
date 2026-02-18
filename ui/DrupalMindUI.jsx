@@ -1,5 +1,41 @@
 import { useState, useEffect, useRef } from "react";
 
+// Theme definitions
+const THEMES = {
+  dark: {
+    bg: "#090b12",
+    bgSecondary: "#0d1017",
+    bgTertiary: "#141822",
+    border: "#1e2533",
+    text: "#e2e8f0",
+    textSecondary: "#94a3b8",
+    textMuted: "#475569",
+    primary: "#6366f1",
+    primaryHover: "#818cf8",
+    success: "#10b981",
+    warning: "#f97316",
+    error: "#f87171",
+    scrollTrack: "#0f1117",
+    scrollThumb: "#2d3748",
+  },
+  light: {
+    bg: "#f8fafc",
+    bgSecondary: "#ffffff",
+    bgTertiary: "#f1f5f9",
+    border: "#e2e8f0",
+    text: "#1e293b",
+    textSecondary: "#64748b",
+    textMuted: "#94a3b8",
+    primary: "#6366f1",
+    primaryHover: "#4f46e5",
+    success: "#10b981",
+    warning: "#f97316",
+    error: "#ef4444",
+    scrollTrack: "#f1f5f9",
+    scrollThumb: "#cbd5e1",
+  },
+};
+
 const AGENTS = {
   orchestrator: { label: "Orchestrator", color: "#6366f1", icon: "🧠" },
   analyzer:     { label: "Analyzer",     color: "#f59e0b", icon: "🔍" },
@@ -99,14 +135,16 @@ export default function DrupalMind() {
   const [expandedLog, setExpandedLog] = useState(null);
   const [activeSection, setActiveSection] = useState("Build");
   const [llmProvider, setLlmProvider] = useState("anthropic");
+  const [theme, setTheme] = useState("dark");
   const logRef = useRef(null);
 
-  const doneTasks = MOCK_TASKS.filter(t => t.status === "done").length;
+  const t = THEMES[theme];
+  const doneTasks = MOCK_TASKS.filter(task => task.status === "done").length;
   const progress = Math.round((doneTasks / MOCK_TASKS.length) * 100);
 
   return (
     <div style={{
-      minHeight: "100vh", background: "#090b12", color: "#e2e8f0",
+      minHeight: "100vh", background: t.bg, color: t.text,
       fontFamily: "'DM Sans', system-ui, sans-serif",
       display: "flex", flexDirection: "column",
     }}>
@@ -114,21 +152,21 @@ export default function DrupalMind() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #0f1117; }
-        ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: ${t.scrollTrack}; }
+        ::-webkit-scrollbar-thumb { background: ${t.scrollThumb}; border-radius: 4px; }
         @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
         @keyframes slideIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
-        .log-row:hover { background: #ffffff08 !important; }
-        .task-row:hover { background: #ffffff06 !important; }
+        .log-row:hover { background: ${theme === 'dark' ? '#ffffff08' : '#00000008'} !important; }
+        .task-row:hover { background: ${theme === 'dark' ? '#ffffff06' : '#00000006'} !important; }
         .agent-node:hover { transform: scale(1.05); }
       `}</style>
 
       {/* Header */}
       <div style={{
-        borderBottom: "1px solid #1e2533",
+        borderBottom: `1px solid ${t.border}`,
         padding: "0 24px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        height: 52, background: "#0d1017",
+        height: 52, background: t.bgSecondary,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{
@@ -139,18 +177,36 @@ export default function DrupalMind() {
           }}>🧠</div>
           <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.3px" }}>DrupalMind</span>
           <span style={{
-            fontSize: 10, background: "#6366f122", color: "#818cf8",
-            border: "1px solid #6366f133", borderRadius: 4, padding: "1px 6px",
+            fontSize: 10, background: t.primary + "22", color: t.primary,
+            border: `1px solid ${t.primary}33`, borderRadius: 4, padding: "1px 6px",
             fontFamily: "monospace", fontWeight: 600,
           }}>v0.1 BETA</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#64748b" }}>
-            <PulsingDot color="#10b981" />
+          {/* Theme Toggle */}
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            style={{
+              background: t.bgTertiary,
+              border: `1px solid ${t.border}`,
+              borderRadius: 6,
+              padding: "6px 12px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: t.text,
+              fontSize: 14,
+            }}
+          >
+            {theme === "dark" ? "🌙" : "☀️"}
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.textSecondary }}>
+            <PulsingDot color={t.success} />
             <span>3 agents active</span>
           </div>
           <div style={{
-            background: "#6366f122", color: "#818cf8", border: "1px solid #6366f133",
+            background: t.primary + "22", color: t.primary, border: `1px solid ${t.primary}33`,
             borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
           }}>Drupal: localhost:5500 ↗</div>
         </div>
@@ -160,12 +216,12 @@ export default function DrupalMind() {
 
         {/* LEFT PANEL — Input + Agent Map */}
         <div style={{
-          width: 280, borderRight: "1px solid #1e2533",
-          display: "flex", flexDirection: "column", background: "#0d1017", flexShrink: 0,
+          width: 280, borderRight: `1px solid ${t.border}`,
+          display: "flex", flexDirection: "column", background: t.bgSecondary, flexShrink: 0,
         }}>
           {/* Input */}
-          <div style={{ padding: 16, borderBottom: "1px solid #1e2533" }}>
-            <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
+          <div style={{ padding: 16, borderBottom: `1px solid ${t.border}` }}>
+            <div style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
               Migration Target
             </div>
             <div style={{
@@ -175,8 +231,8 @@ export default function DrupalMind() {
                 <button key={m} onClick={() => setMode(m)} style={{
                   flex: 1, padding: "5px 0", borderRadius: 6, border: "none", cursor: "pointer",
                   fontSize: 11, fontWeight: 600,
-                  background: mode === m ? "#6366f1" : "#1e2533",
-                  color: mode === m ? "#fff" : "#64748b",
+                  background: mode === m ? t.primary : t.bgTertiary,
+                  color: mode === m ? "#fff" : t.textSecondary,
                   transition: "all 0.15s",
                 }}>
                   {m === "migrate" ? "🔗 URL" : "✏️ Describe"}
@@ -189,8 +245,8 @@ export default function DrupalMind() {
                 onChange={e => setUrl(e.target.value)}
                 placeholder="https://source-site.com"
                 style={{
-                  width: "100%", background: "#141822", border: "1px solid #2d3748",
-                  borderRadius: 8, padding: "8px 10px", color: "#e2e8f0",
+                  width: "100%", background: t.bgTertiary, border: `1px solid ${t.border}`,
+                  borderRadius: 8, padding: "8px 10px", color: t.text,
                   fontSize: 12, fontFamily: "DM Mono, monospace", outline: "none",
                 }}
               />
@@ -199,18 +255,18 @@ export default function DrupalMind() {
                 placeholder="Describe the website you want to build..."
                 rows={3}
                 style={{
-                  width: "100%", background: "#141822", border: "1px solid #2d3748",
-                  borderRadius: 8, padding: "8px 10px", color: "#e2e8f0",
+                  width: "100%", background: t.bgTertiary, border: `1px solid ${t.border}`,
+                  borderRadius: 8, padding: "8px 10px", color: t.text,
                   fontSize: 12, outline: "none", resize: "none", fontFamily: "DM Sans, sans-serif",
                 }}
               />
             )}
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
               {[["Full site migration", true], ["Structure only", false], ["Content only", false]].map(([label, checked]) => (
-                <label key={label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "#94a3b8", cursor: "pointer" }}>
+                <label key={label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: t.textSecondary, cursor: "pointer" }}>
                   <div style={{
-                    width: 14, height: 14, borderRadius: 4, border: "1px solid #334155",
-                    background: checked ? "#6366f1" : "transparent",
+                    width: 14, height: 14, borderRadius: 4, border: `1px solid ${t.border}`,
+                    background: checked ? t.primary : "transparent",
                     display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff",
                   }}>{checked ? "✓" : ""}</div>
                   {label}
@@ -219,8 +275,8 @@ export default function DrupalMind() {
             </div>
             
             {/* LLM Provider Selection */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #1e2533" }}>
-              <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${t.border}` }}>
+              <div style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
                 AI Model
               </div>
               <div style={{ display: "flex", gap: 4 }}>
@@ -236,8 +292,8 @@ export default function DrupalMind() {
                       cursor: "pointer",
                       fontSize: 10,
                       fontWeight: 600,
-                      background: llmProvider === provider.id ? "#6366f1" : "#1e2533",
-                      color: llmProvider === provider.id ? "#fff" : "#64748b",
+                      background: llmProvider === provider.id ? t.primary : t.bgTertiary,
+                      color: llmProvider === provider.id ? "#fff" : t.textSecondary,
                       transition: "all 0.15s",
                       display: "flex",
                       flexDirection: "column",
@@ -256,8 +312,8 @@ export default function DrupalMind() {
               onClick={() => setStarted(true)}
               style={{
                 width: "100%", marginTop: 12, padding: "9px 0",
-                background: started ? "#1e2533" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                color: started ? "#475569" : "#fff",
+                background: started ? t.bgTertiary : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: started ? t.textMuted : "#fff",
                 border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
                 cursor: started ? "default" : "pointer",
                 transition: "all 0.2s",
@@ -268,26 +324,26 @@ export default function DrupalMind() {
           </div>
 
           {/* Progress */}
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #1e2533" }}>
+          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${t.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: "#64748b" }}>Overall Progress</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", fontFamily: "monospace" }}>{progress}%</span>
+              <span style={{ fontSize: 11, color: t.textSecondary }}>Overall Progress</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: t.primary, fontFamily: "monospace" }}>{progress}%</span>
             </div>
-            <div style={{ height: 4, background: "#1e2533", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: 4, background: t.bgTertiary, borderRadius: 4, overflow: "hidden" }}>
               <div style={{
                 height: "100%", width: `${progress}%`,
                 background: "linear-gradient(90deg, #6366f1, #8b5cf6)",
                 borderRadius: 4, transition: "width 0.5s ease",
               }} />
             </div>
-            <div style={{ marginTop: 8, fontSize: 11, color: "#475569" }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted }}>
               {doneTasks} / {MOCK_TASKS.length} tasks complete
             </div>
           </div>
 
           {/* Agent Status */}
           <div style={{ padding: "12px 16px", flex: 1, overflow: "auto" }}>
-            <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>
+            <div style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>
               Agent Status
             </div>
             {Object.entries(AGENTS).map(([key, agent]) => {
@@ -299,12 +355,12 @@ export default function DrupalMind() {
                 <div key={key} className="agent-node" style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "6px 10px", borderRadius: 8, marginBottom: 4,
-                  background: "#141822", border: "1px solid #1e2533",
+                  background: t.bgTertiary, border: `1px solid ${t.border}`,
                   cursor: "pointer", transition: "transform 0.15s",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <span style={{ fontSize: 14 }}>{agent.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#cbd5e1" }}>{agent.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{agent.label}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                     {status === "active" && <PulsingDot color={agent.color} />}
@@ -323,16 +379,16 @@ export default function DrupalMind() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
           {/* Live Log */}
-          <div style={{ flex: 1, borderBottom: "1px solid #1e2533", overflow: "auto", padding: "0" }} ref={logRef}>
+          <div style={{ flex: 1, borderBottom: `1px solid ${t.border}`, overflow: "auto", padding: "0" }} ref={logRef}>
             <div style={{
-              position: "sticky", top: 0, background: "#090b12",
-              padding: "10px 20px", borderBottom: "1px solid #1e2533",
+              position: "sticky", top: 0, background: t.bg,
+              padding: "10px 20px", borderBottom: `1px solid ${t.border}`,
               display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 2,
             }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#475569", letterSpacing: 1, textTransform: "uppercase" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1, textTransform: "uppercase" }}>
                 Live Agent Log
               </span>
-              <span style={{ fontSize: 11, color: "#475569" }}>{MOCK_LOGS.length} entries</span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{MOCK_LOGS.length} entries</span>
             </div>
             {MOCK_LOGS.map((log, i) => {
               const agent = AGENTS[log.agent];
@@ -345,7 +401,7 @@ export default function DrupalMind() {
                   onClick={() => setExpandedLog(isExpanded ? null : log.id)}
                   style={{
                     padding: "8px 20px", cursor: "pointer",
-                    borderBottom: "1px solid #0f1117",
+                    borderBottom: `1px solid ${t.border}`,
                     animation: `slideIn 0.2s ease ${i * 0.03}s both`,
                     background: isExpanded ? "#ffffff06" : "transparent",
                   }}
@@ -355,8 +411,8 @@ export default function DrupalMind() {
                       09:4{String(i).padStart(2,"0")}
                     </span>
                     <AgentBadge agentKey={log.agent} />
-                    <span style={{ fontSize: 12, color: isActive ? "#e2e8f0" : "#94a3b8", flex: 1 }}>
-                      {isActive && <><PulsingDot color={agent?.color || "#fff"} /> </>}
+                    <span style={{ fontSize: 12, color: isActive ? t.text : t.textSecondary, flex: 1 }}>
+                      {isActive && <><PulsingDot color={agent?.color || t.text} /> </>}
                       {log.msg}
                     </span>
                     {log.detail && (
@@ -366,8 +422,8 @@ export default function DrupalMind() {
                   {isExpanded && log.detail && (
                     <div style={{
                       marginTop: 6, marginLeft: 60, padding: "8px 12px",
-                      background: "#0f1117", borderRadius: 6, borderLeft: `2px solid ${agent?.color}44`,
-                      fontSize: 11, color: "#64748b", fontFamily: "DM Mono, monospace",
+                      background: t.bgSecondary, borderRadius: 6, borderLeft: `2px solid ${agent?.color}44`,
+                      fontSize: 11, color: t.textSecondary, fontFamily: "DM Mono, monospace",
                     }}>
                       {log.detail}
                     </div>
@@ -380,8 +436,8 @@ export default function DrupalMind() {
           {/* Task Board */}
           <div style={{ height: 220, overflow: "auto", background: "#0d1017" }}>
             <div style={{
-              position: "sticky", top: 0, background: "#0d1017",
-              padding: "8px 20px", borderBottom: "1px solid #1e2533",
+              position: "sticky", top: 0, background: t.bgSecondary,
+              padding: "8px 20px", borderBottom: `1px solid ${t.border}`,
               display: "flex", alignItems: "center", gap: 12, zIndex: 2,
               overflowX: "auto",
             }}>
@@ -392,8 +448,8 @@ export default function DrupalMind() {
                 <button key={s} onClick={() => setActiveSection(s)} style={{
                   padding: "3px 10px", borderRadius: 6, border: "none", cursor: "pointer",
                   fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
-                  background: activeSection === s ? "#6366f122" : "transparent",
-                  color: activeSection === s ? "#818cf8" : "#475569",
+                  background: activeSection === s ? t.primary + "22" : "transparent",
+                  color: activeSection === s ? t.primaryHover : t.textMuted,
                   transition: "all 0.15s",
                 }}>
                   {s}
@@ -412,13 +468,13 @@ export default function DrupalMind() {
                   }}>
                     <div style={{
                       width: 16, height: 16, borderRadius: 4,
-                      background: task.status === "done" ? "#10b981" : task.status === "active" ? "#f97316" : "#1e2533",
+                      background: task.status === "done" ? t.success : task.status === "active" ? t.warning : t.bgTertiary,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 9, color: "#fff", flexShrink: 0,
                     }}>
                       {task.status === "done" ? "✓" : task.status === "active" ? "⟳" : ""}
                     </div>
-                    <span style={{ fontSize: 12, color: task.status === "pending" ? "#475569" : "#cbd5e1", flex: 1 }}>
+                    <span style={{ fontSize: 12, color: task.status === "pending" ? t.textMuted : t.text, flex: 1 }}>
                       {task.task}
                     </span>
                     <AgentBadge agentKey={task.agent} />
@@ -459,7 +515,7 @@ export default function DrupalMind() {
                   {["#f87171","#fbbf24","#4ade80"].map(c => (
                     <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c }} />
                   ))}
-                  <div style={{ flex: 1, background: "#0f1117", borderRadius: 4, padding: "2px 8px", marginLeft: 4, fontSize: 9, color: "#475569", fontFamily: "monospace" }}>
+                  <div style={{ flex: 1, background: t.bgSecondary, borderRadius: 4, padding: "2px 8px", marginLeft: 4, fontSize: 9, color: t.textMuted, fontFamily: "monospace" }}>
                     example-agency.com
                   </div>
                 </div>
@@ -470,7 +526,7 @@ export default function DrupalMind() {
                   </div>
                   <div style={{ display: "flex", gap: 4, flex: 1 }}>
                     {[1,2,3].map(n => (
-                      <div key={n} style={{ flex: 1, background: "#1e2533", borderRadius: 4 }} />
+                      <div key={n} style={{ flex: 1, background: t.bgSecondary, borderRadius: 4 }} />
                     ))}
                   </div>
                   <div style={{ height: 20, background: "#1a1a2e", borderRadius: 4 }} />
@@ -485,14 +541,14 @@ export default function DrupalMind() {
               </div>
               <div style={{
                 height: 160, borderRadius: 8, overflow: "hidden",
-                background: "#141822", border: "1px solid #10b98133",
+                background: t.bgTertiary, border: `1px solid ${t.success}55`,
                 display: "flex", flexDirection: "column",
               }}>
-                <div style={{ background: "#1e2533", padding: "5px 8px", display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ background: t.bgSecondary, padding: "5px 8px", display: "flex", alignItems: "center", gap: 5 }}>
                   {["#f87171","#fbbf24","#4ade80"].map(c => (
                     <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c }} />
                   ))}
-                  <div style={{ flex: 1, background: "#0f1117", borderRadius: 4, padding: "2px 8px", marginLeft: 4, fontSize: 9, color: "#475569", fontFamily: "monospace" }}>
+                  <div style={{ flex: 1, background: t.bg, borderRadius: 4, padding: "2px 8px", marginLeft: 4, fontSize: 9, color: t.textMuted, fontFamily: "monospace" }}>
                     localhost:5500
                   </div>
                 </div>
@@ -502,7 +558,7 @@ export default function DrupalMind() {
                   </div>
                   <div style={{ display: "flex", gap: 4, flex: 1 }}>
                     {[1,2].map(n => (
-                      <div key={n} style={{ flex: 1, background: "#1e2533", borderRadius: 4 }} />
+                      <div key={n} style={{ flex: 1, background: t.bgSecondary, borderRadius: 4 }} />
                     ))}
                     <div style={{ flex: 1, background: "#1e233388", borderRadius: 4, border: "1px dashed #334155" }} />
                   </div>
@@ -520,10 +576,10 @@ export default function DrupalMind() {
 
             {/* Match score */}
             <div style={{
-              background: "#141822", border: "1px solid #1e2533",
+              background: t.bgTertiary, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: 10,
             }}>
-              <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase" }}>
+              <div style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase" }}>
                 Match Score
               </div>
               {[
@@ -534,12 +590,12 @@ export default function DrupalMind() {
               ].map(({ label, score, color }) => (
                 <div key={label} style={{ marginBottom: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 11, color: "#64748b" }}>{label}</span>
-                    <span style={{ fontSize: 11, fontFamily: "monospace", color: score > 50 ? color : "#475569" }}>
+                    <span style={{ fontSize: 11, color: t.textSecondary }}>{label}</span>
+                    <span style={{ fontSize: 11, fontFamily: "monospace", color: score > 50 ? color : t.textMuted }}>
                       {score > 0 ? `${score}%` : "—"}
                     </span>
                   </div>
-                  <div style={{ height: 3, background: "#1e2533", borderRadius: 3 }}>
+                  <div style={{ height: 3, background: t.bgSecondary, borderRadius: 3 }}>
                     <div style={{
                       height: "100%", width: `${score}%`,
                       background: color, borderRadius: 3,
@@ -552,8 +608,8 @@ export default function DrupalMind() {
 
             <button style={{
               width: "100%", marginTop: 10, padding: "8px 0",
-              background: "#141822", color: "#64748b",
-              border: "1px solid #1e2533", borderRadius: 8,
+              background: t.bgTertiary, color: t.textSecondary,
+              border: `1px solid ${t.border}`, borderRadius: 8,
               fontSize: 12, cursor: "pointer", fontWeight: 500,
             }}>
               Open in Drupal ↗
