@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DrupalMind — Agentic Drupal Builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:#0a0c14}
+::-webkit-scrollbar-thumb{background:#2a3045;border-radius:4px}
+html,body,#root{height:100%;overflow:hidden}
+body{background:#090b14;color:#dde2f0;font-family:'DM Sans',sans-serif;font-size:13px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.pulse{animation:pulse 1.5s infinite}
+.slide-up{animation:slideUp .2s ease both}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {useState,useEffect,useRef,useCallback}=React;
+const e=React.createElement;
+
+/* ── Constants ─────────────────────────────────────────────── */
+const API_BASE = window.location.protocol+'//'+window.location.hostname+':5511';
+const WS_BASE  = 'ws://'+window.location.hostname+':5511';
+
+const AGENTS = {
+  orchestrator:{label:'Orchestrator',color:'#7c6af7',icon:'🧠'},
+  analyzer:    {label:'Analyzer',    color:'#f59e0b',icon:'🔍'},
+  train:       {label:'TrainAgent',  color:'#a78bfa',icon:'📚'},
+  build:       {label:'BuildAgent',  color:'#10b981',icon:'🏗️'},
+  theme:       {label:'ThemeAgent',  color:'#ec4899',icon:'🎨'},
+  content:     {label:'ContentAgent',color:'#14b8a6',icon:'📝'},
+  test:        {label:'TestAgent',   color:'#f97316',icon:'🧪'},
+  qa:          {label:'QAAgent',     color:'#06b6d4',icon:'✅'},
+};
+
+const PHASES = ['Discovery','Knowledge','Build','Theme','Content','Verify','QA'];
+
+/* ── Utility components ────────────────────────────────────── */
+function Dot({color,animate}){
+  return e('span',{style:{
+    display:'inline-block',width:7,height:7,borderRadius:'50%',
+    background:color,boxShadow:`0 0 6px ${color}44`,flexShrink:0,
+    ...(animate?{animation:'pulse 1.4s infinite'}:{})
+  }})
+}
+
+function Badge({agentKey,size='sm'}){
+  const a=AGENTS[agentKey];
+  if(!a)return null;
+  return e('span',{style:{
+    display:'inline-flex',alignItems:'center',gap:4,
+    background:a.color+'18',border:`1px solid ${a.color}33`,color:a.color,
+    borderRadius:5,padding:size==='sm'?'1px 7px':'3px 10px',
+    fontSize:size==='sm'?10:11,fontWeight:600,fontFamily:'DM Mono,monospace',
+    whiteSpace:'nowrap'
+  }},a.icon,' ',a.label)
+}
+
+function StatusPill({status}){
+  const map={
+    done:   {bg:'#052e16',c:'#4ade80',t:'Done'},
+    active: {bg:'#1c1410',c:'#fb923c',t:'Running'},
+    pending:{bg:'#0f1524',c:'#3b4a6b',t:'Pending'},
+    error:  {bg:'#2d0a10',c:'#f87171',t:'Error'},
+    warn:   {bg:'#1c1410',c:'#fbbf24',t:'Warn'},
+  };
+  const s=map[status]||map.pending;
+  return e('span',{style:{
+    fontSize:10,padding:'1px 7px',borderRadius:4,
+    background:s.bg,color:s.c,fontWeight:600,fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'
+  }},s.t)
+}
+
+function ProgressBar({percent,color='#7c6af7'}){
+  return e('div',{style:{height:3,background:'#1a2035',borderRadius:3,overflow:'hidden'}},
+    e('div',{style:{
+      height:'100%',width:`${Math.min(percent||0,100)}%`,
+      background:`linear-gradient(90deg,${color},${color}aa)`,
+      borderRadius:3,transition:'width .5s ease'
+    }})
+  )
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+function Header({drupalOk,agentsOk}){
+  return e('div',{style:{
+    height:48,background:'#0c0f1a',borderBottom:'1px solid #1a2035',
+    display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0
+  }},
+    e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+      e('div',{style:{
+        width:26,height:26,borderRadius:7,
+        background:'linear-gradient(135deg,#7c6af7,#a78bfa)',
+        display:'flex',alignItems:'center',justifyContent:'center',fontSize:13
+      }},'🧠'),
+      e('span',{style:{fontWeight:700,fontSize:15,letterSpacing:'-.4px'}},'DrupalMind'),
+      e('span',{style:{
+        fontSize:9,background:'#7c6af718',color:'#7c6af7',
+        border:'1px solid #7c6af730',borderRadius:4,padding:'1px 6px',
+        fontFamily:'DM Mono,monospace',fontWeight:600
+      }},'v0.1')
+    ),
+    e('div',{style:{display:'flex',alignItems:'center',gap:14}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#3b4a6b'}},
+        e(Dot,{color:drupalOk?'#10b981':'#f87171',animate:false}),
+        e('span',null,'Drupal: ',e('span',{style:{color:drupalOk?'#4ade80':'#f87171'}},drupalOk?'Connected':'Offline'))
+      ),
+      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#3b4a6b'}},
+        e(Dot,{color:agentsOk?'#10b981':'#f87171',animate:false}),
+        e('span',null,'Agents: ',e('span',{style:{color:agentsOk?'#4ade80':'#f87171'}},agentsOk?'Ready':'Offline'))
+      ),
+      e('a',{href:'http://'+window.location.hostname+':5500',target:'_blank',style:{
+        background:'#7c6af718',color:'#7c6af7',border:'1px solid #7c6af730',
+        borderRadius:6,padding:'4px 12px',fontSize:11,fontWeight:600,
+        cursor:'pointer',textDecoration:'none'
+      }},'Open Drupal ↗')
+    )
+  )
+}
+
+/* ── Input Panel ───────────────────────────────────────────── */
+function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
+  const [url,setUrl]=useState('');
+  const [desc,setDesc]=useState('');
+  const [mode,setMode]=useState('url');
+  const [scope,setScope]=useState('full');
+
+  const handleStart=()=>{
+    const source=mode==='url'?url:desc;
+    if(!source.trim())return;
+    onStart({source,mode,scope});
+  };
+
+  const done=(tasks||[]).filter(t=>t.status==='done').length;
+  const total=(tasks||[]).length||1;
+  const pct=Math.round((done/total)*100);
+
+  return e('div',{style:{
+    width:272,background:'#0c0f1a',borderRight:'1px solid #1a2035',
+    display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'
+  }},
+    /* Mode tabs */
+    e('div',{style:{padding:'14px 14px 10px'}},
+      e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1.2,marginBottom:8,textTransform:'uppercase'}},
+        'Migration Target'),
+      e('div',{style:{display:'flex',gap:4,marginBottom:10}},
+        ['url','description'].map(m=>
+          e('button',{key:m,onClick:()=>setMode(m),style:{
+            flex:1,padding:'5px 0',borderRadius:6,border:'none',cursor:'pointer',
+            fontSize:10,fontWeight:700,
+            background:mode===m?'#7c6af7':'#151c2c',
+            color:mode===m?'#fff':'#3b4a6b',transition:'all .15s'
+          }},m==='url'?'🔗 URL':'✏️ Describe')
+        )
+      ),
+      mode==='url'
+        ? e('input',{
+            value:url,onChange:ev=>setUrl(ev.target.value),
+            placeholder:'https://source-site.com',
+            style:{
+              width:'100%',background:'#101524',border:'1px solid #1e2a40',
+              borderRadius:7,padding:'7px 10px',color:'#dde2f0',
+              fontSize:11,fontFamily:'DM Mono,monospace',outline:'none',
+              '::placeholder':{color:'#3b4a6b'}
+            }
+          })
+        : e('textarea',{
+            value:desc,onChange:ev=>setDesc(ev.target.value),
+            placeholder:'Describe the website you want to build...',
+            rows:4,style:{
+              width:'100%',background:'#101524',border:'1px solid #1e2a40',
+              borderRadius:7,padding:'7px 10px',color:'#dde2f0',
+              fontSize:11,outline:'none',resize:'none',fontFamily:'DM Sans,sans-serif'
+            }
+          }),
+      e('div',{style:{marginTop:10,display:'flex',flexDirection:'column',gap:5}},
+        [['full','Full site migration'],['structure','Structure only'],['single_page','Single page']].map(([val,label])=>
+          e('label',{key:val,style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer'}},
+            e('div',{onClick:()=>setScope(val),style:{
+              width:14,height:14,borderRadius:4,border:'1px solid #1e2a40',
+              background:scope===val?'#7c6af7':'transparent',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:9,color:'#fff',cursor:'pointer',flexShrink:0
+            }},scope===val?'✓':''),
+            e('span',{style:{fontSize:11,color:'#6b7a9b',cursor:'pointer'},onClick:()=>setScope(val)},label)
+          )
+        )
+      ),
+      e('button',{
+        onClick:handleStart,
+        disabled:isRunning,
+        style:{
+          width:'100%',marginTop:12,padding:'9px 0',
+          background:isRunning?'#151c2c':'linear-gradient(135deg,#7c6af7,#a78bfa)',
+          color:isRunning?'#3b4a6b':'#fff',
+          border:'none',borderRadius:8,fontSize:12,fontWeight:700,
+          cursor:isRunning?'default':'pointer',transition:'all .2s'
+        }
+      },isRunning?`⏳ Building... (${pct}%)`:'🚀 Start Build')
+    ),
+
+    /* Progress */
+    isRunning&&e('div',{style:{padding:'0 14px 12px'}},
+      e('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:5}},
+        e('span',{style:{fontSize:10,color:'#3b4a6b'}},'Progress'),
+        e('span',{style:{fontSize:11,fontFamily:'DM Mono,monospace',color:'#7c6af7',fontWeight:700}},pct+'%')
+      ),
+      e(ProgressBar,{percent:pct}),
+      e('div',{style:{marginTop:5,fontSize:10,color:'#3b4a6b'}},done+' / '+total+' tasks')
+    ),
+
+    e('div',{style:{height:'1px',background:'#1a2035',margin:'0 14px'}}),
+
+    /* Agent status list */
+    e('div',{style:{padding:'12px 14px',overflow:'auto',flex:1}},
+      e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1.2,marginBottom:10,textTransform:'uppercase'}},
+        'Agent Status'),
+      Object.entries(AGENTS).map(([key,agent])=>{
+        const state=(agentStates||{})[key]||'pending';
+        return e('div',{key,style:{
+          display:'flex',alignItems:'center',justifyContent:'space-between',
+          padding:'6px 9px',borderRadius:7,marginBottom:3,
+          background:'#101524',border:'1px solid #1a2035',cursor:'default'
+        }},
+          e('div',{style:{display:'flex',alignItems:'center',gap:7}},
+            e('span',{style:{fontSize:13}},(AGENTS[key]||{}).icon||'•'),
+            e('span',{style:{fontSize:11,fontWeight:500,color:'#9ba8c0'}},(AGENTS[key]||{}).label)
+          ),
+          e('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            state==='active'&&e(Dot,{color:agent.color,animate:true}),
+            e(StatusPill,{status:state})
+          )
+        )
+      })
+    )
+  )
+}
+
+/* ── Log Panel ─────────────────────────────────────────────── */
+function LogPanel({logs}){
+  const [expanded,setExpanded]=useState(null);
+  const logRef=useRef(null);
+
+  useEffect(()=>{
+    if(logRef.current){
+      logRef.current.scrollTop=logRef.current.scrollHeight;
+    }
+  },[logs]);
+
+  return e('div',{style:{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}},
+    e('div',{style:{
+      padding:'8px 18px',borderBottom:'1px solid #1a2035',
+      display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,
+      background:'#090b14'
+    }},
+      e('span',{style:{fontSize:9,fontWeight:700,color:'#3b4a6b',letterSpacing:1.2,textTransform:'uppercase'}},
+        'Live Agent Log'),
+      e('span',{style:{fontSize:10,color:'#3b4a6b',fontFamily:'DM Mono,monospace'}},
+        logs.length+' events')
+    ),
+    e('div',{ref:logRef,style:{flex:1,overflow:'auto',padding:'4px 0'}},
+      logs.length===0
+        ? e('div',{style:{padding:'40px 20px',textAlign:'center',color:'#2a3045',fontSize:12}},
+            '🤖 Start a build to see live agent activity')
+        : logs.filter(l=>l.type==='log'||l.type==='error').map((log,i)=>{
+            const agent=AGENTS[log.agent]||{color:'#3b4a6b',icon:'•'};
+            const isExp=expanded===i;
+            const isActive=log.status==='active';
+            return e('div',{key:i,
+              onClick:()=>setExpanded(isExp?null:i),
+              className:'slide-up',
+              style:{
+                padding:'7px 18px',cursor:log.detail?'pointer':'default',
+                borderBottom:'1px solid #0d1020',
+                background:isExp?'#0f1524':'transparent',
+                animationDelay:`${Math.min(i*.02,.3)}s`
+              }},
+              e('div',{style:{display:'flex',alignItems:'center',gap:9}},
+                e('span',{style:{fontSize:9,color:'#2a3045',fontFamily:'DM Mono,monospace',minWidth:44,flexShrink:0}},
+                  log.time||'--:--'),
+                e(Badge,{agentKey:log.agent}),
+                e('span',{style:{
+                  fontSize:11,color:isActive?'#dde2f0':'#7a8aaa',flex:1,
+                  display:'flex',alignItems:'center',gap:5
+                }},
+                  isActive&&e(Dot,{color:agent.color,animate:true}),
+                  ' ',log.message),
+                log.detail&&e('span',{style:{fontSize:9,color:'#2a3045'}},(isExp?'▲':'▼'))
+              ),
+              isExp&&log.detail&&e('div',{style:{
+                marginTop:5,marginLeft:58,padding:'7px 10px',
+                background:'#0a0e1c',borderRadius:5,
+                borderLeft:`2px solid ${agent.color}44`,
+                fontSize:10,color:'#4b5a7a',fontFamily:'DM Mono,monospace',
+                wordBreak:'break-word'
+              }},log.detail)
+            )
+          })
+    )
+  )
+}
+
+/* ── Task Board ────────────────────────────────────────────── */
+function TaskBoard({tasks}){
+  const [activePhase,setActivePhase]=useState('Discovery');
+  const filtered=(tasks||[]).filter(t=>t.section===activePhase);
+
+  return e('div',{style:{height:200,background:'#0c0f1a',borderTop:'1px solid #1a2035',flexShrink:0}},
+    e('div',{style:{
+      padding:'6px 18px',borderBottom:'1px solid #1a2035',
+      display:'flex',alignItems:'center',gap:10,overflowX:'auto'
+    }},
+      e('span',{style:{fontSize:9,fontWeight:700,color:'#3b4a6b',letterSpacing:1.2,textTransform:'uppercase',whiteSpace:'nowrap'}},
+        'Build Plan'),
+      PHASES.map(ph=>{
+        const pTasks=(tasks||[]).filter(t=>t.section===ph);
+        const done=pTasks.filter(t=>t.status==='done').length;
+        const active=pTasks.some(t=>t.status==='active');
+        return e('button',{key:ph,onClick:()=>setActivePhase(ph),style:{
+          padding:'3px 10px',borderRadius:5,border:'none',cursor:'pointer',
+          fontSize:10,fontWeight:600,whiteSpace:'nowrap',
+          background:activePhase===ph?'#7c6af718':'transparent',
+          color:activePhase===ph?'#7c6af7':'#3b4a6b',
+          display:'flex',alignItems:'center',gap:4,transition:'all .1s'
+        }},
+          active&&e(Dot,{color:'#f97316',animate:true}),
+          ph,
+          pTasks.length>0&&e('span',{style:{
+            fontSize:9,background:'#1a2035',borderRadius:3,
+            padding:'1px 4px',fontFamily:'DM Mono,monospace'
+          }},`${done}/${pTasks.length}`)
+        )
+      })
+    ),
+    e('div',{style:{padding:'6px 18px',overflow:'auto',height:'calc(100% - 33px)'}},
+      filtered.length===0
+        ? e('div',{style:{padding:'20px 0',textAlign:'center',color:'#2a3045',fontSize:11}},'No tasks in this phase yet')
+        : filtered.map(task=>{
+            const statusColors={done:'#10b981',active:'#f97316',pending:'#1a2035',error:'#f87171'};
+            return e('div',{key:task.id,style:{
+              display:'flex',alignItems:'center',gap:9,
+              padding:'5px 7px',borderRadius:6,marginBottom:2,
+            }},
+              e('div',{style:{
+                width:15,height:15,borderRadius:4,flexShrink:0,
+                background:statusColors[task.status]||'#1a2035',
+                display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'#fff'
+              }},task.status==='done'?'✓':task.status==='active'?'⟳':task.status==='error'?'✕':''),
+              e('span',{style:{
+                fontSize:11,color:task.status==='pending'?'#3b4a6b':'#9ba8c0',flex:1
+              }},task.task),
+              task.detail&&e('span',{style:{fontSize:9,color:'#2a3045',fontFamily:'DM Mono,monospace',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+                task.detail),
+              e(Badge,{agentKey:task.agent})
+            )
+          })
+    )
+  )
+}
+
+/* ── Preview Panel ─────────────────────────────────────────── */
+function PreviewPanel({blueprint,builtPages,testReport,qaReport,source,isRunning}){
+  const score=testReport?.overall_score||0;
+  const qaScore=qaReport?.score||0;
+
+  return e('div',{style:{
+    width:300,background:'#0c0f1a',borderLeft:'1px solid #1a2035',
+    display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'
+  }},
+    e('div',{style:{
+      padding:'8px 14px',borderBottom:'1px solid #1a2035',
+      fontSize:9,fontWeight:700,color:'#3b4a6b',letterSpacing:1.2,textTransform:'uppercase',
+      display:'flex',justifyContent:'space-between',alignItems:'center'
+    }},
+      'Build Preview',
+      e('span',{style:{color:'#2a3045',fontSize:9,fontFamily:'DM Mono,monospace'}},
+        builtPages?.length||0,' pages')
+    ),
+    e('div',{style:{flex:1,overflow:'auto',padding:12}},
+
+      /* Site info */
+      blueprint&&e('div',{style:{
+        background:'#101524',border:'1px solid #1a2035',borderRadius:8,padding:10,marginBottom:10
+      }},
+        e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:'uppercase'}},'Target'),
+        e('div',{style:{fontSize:12,fontWeight:600,color:'#dde2f0',marginBottom:3}},blueprint.title||'Untitled'),
+        blueprint.source_url&&e('div',{style:{fontSize:10,color:'#4b5a7a',fontFamily:'DM Mono,monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+          blueprint.source_url),
+        e('div',{style:{marginTop:8,display:'flex',gap:4,flexWrap:'wrap'}},
+          (blueprint.content_types_needed||[]).map(ct=>
+            e('span',{key:ct,style:{
+              fontSize:9,padding:'2px 6px',borderRadius:4,
+              background:'#7c6af718',color:'#7c6af7',
+              border:'1px solid #7c6af730',fontFamily:'DM Mono,monospace'
+            }},ct)
+          )
+        )
+      ),
+
+      /* Built pages */
+      (builtPages||[]).length>0&&e('div',{style:{
+        background:'#101524',border:'1px solid #1a2035',borderRadius:8,padding:10,marginBottom:10
+      }},
+        e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1,marginBottom:8,textTransform:'uppercase'}},'Built Pages'),
+        (builtPages||[]).map((p,i)=>
+          e('div',{key:i,style:{
+            display:'flex',alignItems:'center',gap:7,
+            padding:'5px 0',borderBottom:'1px solid #1a2035'
+          }},
+            e('span',{style:{fontSize:9,color:'#4ade80'}},'✓'),
+            e('div',null,
+              e('div',{style:{fontSize:11,color:'#9ba8c0',fontWeight:500}},p.title),
+              e('div',{style:{fontSize:9,color:'#3b4a6b',fontFamily:'DM Mono,monospace'}},p.path||'/')
+            ),
+            e('a',{
+              href:'http://'+window.location.hostname+':5500'+(p.path||'/'),
+              target:'_blank',
+              style:{marginLeft:'auto',fontSize:9,color:'#7c6af7',textDecoration:'none'}
+            },'↗')
+          )
+        )
+      ),
+
+      /* Scores */
+      (testReport||qaReport)&&e('div',{style:{
+        background:'#101524',border:'1px solid #1a2035',borderRadius:8,padding:10,marginBottom:10
+      }},
+        e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1,marginBottom:8,textTransform:'uppercase'}},'Quality Scores'),
+        [
+          {label:'Match Score',score,color:'#10b981'},
+          {label:'QA Score',score:qaScore,color:'#06b6d4'},
+        ].map(({label,score,color})=>
+          e('div',{key:label,style:{marginBottom:8}},
+            e('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:3}},
+              e('span',{style:{fontSize:10,color:'#6b7a9b'}},label),
+              e('span',{style:{fontSize:11,fontFamily:'DM Mono,monospace',color:score>70?color:'#3b4a6b',fontWeight:700}},
+                score?score+'%':'—')
+            ),
+            e(ProgressBar,{percent:score,color})
+          )
+        )
+      ),
+
+      /* Design tokens */
+      blueprint?.design_tokens?.colors?.length>0&&e('div',{style:{
+        background:'#101524',border:'1px solid #1a2035',borderRadius:8,padding:10,marginBottom:10
+      }},
+        e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1,marginBottom:8,textTransform:'uppercase'}},'Brand Colors'),
+        e('div',{style:{display:'flex',gap:5,flexWrap:'wrap'}},
+          (blueprint.design_tokens.colors||[]).slice(0,8).map((c,i)=>
+            e('div',{key:i,title:c,style:{
+              width:24,height:24,borderRadius:4,background:c,
+              border:'1px solid #1a2035',cursor:'default'
+            }})
+          )
+        ),
+        blueprint.design_tokens.fonts?.length>0&&e('div',{style:{marginTop:8,fontSize:10,color:'#4b5a7a'}},
+          '🔤 ',blueprint.design_tokens.fonts.slice(0,3).join(', '))
+      ),
+
+      /* Test checks */
+      testReport?.checks&&e('div',{style:{
+        background:'#101524',border:'1px solid #1a2035',borderRadius:8,padding:10,marginBottom:10
+      }},
+        e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1,marginBottom:8,textTransform:'uppercase'}},'Test Results'),
+        (testReport.checks||[]).map((c,i)=>
+          e('div',{key:i,style:{
+            display:'flex',alignItems:'flex-start',gap:6,marginBottom:5,
+            padding:'4px 0',borderBottom:'1px solid #0d1020'
+          }},
+            e('span',{style:{
+              fontSize:9,color:c.status==='pass'?'#4ade80':c.status==='fail'?'#f87171':'#fbbf24',
+              flexShrink:0,marginTop:1
+            }},c.status==='pass'?'✓':c.status==='fail'?'✕':'!'),
+            e('div',null,
+              e('div',{style:{fontSize:10,color:'#9ba8c0',fontWeight:500}},c.check),
+              e('div',{style:{fontSize:9,color:'#4b5a7a'}},c.detail)
+            )
+          )
+        )
+      ),
+
+      /* Running placeholder */
+      isRunning&&!blueprint&&e('div',{style:{
+        padding:'30px 20px',textAlign:'center',color:'#2a3045'
+      }},
+        e('div',{style:{
+          fontSize:24,animation:'spin 2s linear infinite',display:'inline-block',marginBottom:10
+        }},'⚙️'),
+        e('div',{style:{fontSize:12,color:'#3b4a6b'}},'Agents working...')
+      ),
+
+      /* Action buttons */
+      builtPages?.length>0&&e('a',{
+        href:'http://'+window.location.hostname+':5500',
+        target:'_blank',
+        style:{
+          display:'block',textAlign:'center',padding:'9px 0',
+          background:'#7c6af718',color:'#7c6af7',
+          border:'1px solid #7c6af730',borderRadius:8,
+          fontSize:12,fontWeight:600,textDecoration:'none',marginTop:4
+        }
+      },'Open in Drupal ↗')
+    )
+  )
+}
+
+/* ── Main App ───────────────────────────────────────────────── */
+function App(){
+  const [logs,setLogs]=useState([]);
+  const [tasks,setTasks]=useState([]);
+  const [agentStates,setAgentStates]=useState({});
+  const [isRunning,setIsRunning]=useState(false);
+  const [blueprint,setBlueprint]=useState(null);
+  const [builtPages,setBuiltPages]=useState([]);
+  const [testReport,setTestReport]=useState(null);
+  const [qaReport,setQaReport]=useState(null);
+  const [drupalOk,setDrupalOk]=useState(false);
+  const [agentsOk,setAgentsOk]=useState(false);
+  const [source,setSource]=useState('');
+  const wsRef=useRef(null);
+  const jobRef=useRef(null);
+
+  // Health check on mount
+  useEffect(()=>{
+    const check=async()=>{
+      try{
+        const r=await fetch(API_BASE+'/health');
+        const d=await r.json();
+        setAgentsOk(true);
+        setDrupalOk(d.drupal==='connected');
+      }catch{setAgentsOk(false)}
+    };
+    check();
+    const iv=setInterval(check,15000);
+    return()=>clearInterval(iv);
+  },[]);
+
+  const connectWs=(jobId)=>{
+    if(wsRef.current){wsRef.current.close();}
+    const ws=new WebSocket(`${WS_BASE}/ws/${jobId}`);
+    wsRef.current=ws;
+
+    ws.onmessage=(ev)=>{
+      try{
+        const msg=JSON.parse(ev.data);
+        const now=new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+        if(msg.type==='log'||msg.type==='error'){
+          setLogs(prev=>[...prev.slice(-199),{...msg,time:now}]);
+          // Update agent state
+          if(msg.agent){
+            setAgentStates(prev=>({
+              ...prev,
+              [msg.agent]:msg.status==='done'?'done':msg.status==='error'?'error':'active'
+            }));
+          }
+        }
+        if(msg.type==='progress'||msg.tasks){
+          setTasks(msg.tasks||[]);
+        }
+        if(msg.type==='started'){
+          setTasks(msg.tasks||[]);
+        }
+        if(msg.type==='complete'){
+          setIsRunning(false);
+          setBuiltPages(msg.built_pages||[]);
+          // Refresh blueprint
+          fetch(API_BASE+'/memory/site_blueprint')
+            .then(r=>r.json()).then(d=>setBlueprint(d.value)).catch(()=>{});
+          // Refresh test/QA reports
+          fetch(API_BASE+'/memory/test_report')
+            .then(r=>r.json()).then(d=>setTestReport(d.value)).catch(()=>{});
+          fetch(API_BASE+'/memory/qa_report')
+            .then(r=>r.json()).then(d=>setQaReport(d.value)).catch(()=>{});
+          // Set all agent states done
+          setAgentStates(Object.fromEntries(Object.keys(AGENTS).map(k=>[k,'done'])));
+        }
+        if(msg.type==='error'){
+          setIsRunning(false);
+        }
+      }catch(err){console.error('WS parse error',err)}
+    };
+
+    ws.onerror=()=>setIsRunning(false);
+
+    // Keepalive ping
+    const ping=setInterval(()=>{
+      if(ws.readyState===WebSocket.OPEN) ws.send('ping');
+    },20000);
+    ws.onclose=()=>clearInterval(ping);
+  };
+
+  const handleStart=useCallback(async({source:src,mode,scope})=>{
+    if(isRunning)return;
+    setSource(src);
+    setLogs([]);
+    setTasks([]);
+    setBlueprint(null);
+    setBuiltPages([]);
+    setTestReport(null);
+    setQaReport(null);
+    setAgentStates({});
+    setIsRunning(true);
+
+    try{
+      await fetch(API_BASE+'/memory/reset',{method:'DELETE'});
+      const r=await fetch(API_BASE+'/build',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({source:src,mode,scope})
+      });
+      const d=await r.json();
+      jobRef.current=d.job_id;
+      connectWs(d.job_id);
+    }catch(err){
+      setIsRunning(false);
+      setLogs([{type:'error',agent:'orchestrator',message:'Failed to start: '+err.message,status:'error',time:'--:--'}]);
+    }
+  },[isRunning]);
+
+  return e('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
+    e(Header,{drupalOk,agentsOk}),
+    e('div',{style:{flex:1,display:'flex',overflow:'hidden'}},
+      e(InputPanel,{onStart:handleStart,isRunning,progress:0,tasks,agentStates}),
+      e('div',{style:{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}},
+        e(LogPanel,{logs}),
+        e(TaskBoard,{tasks})
+      ),
+      e(PreviewPanel,{blueprint,builtPages,testReport,qaReport,source,isRunning})
+    )
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+</script>
+</body>
+</html>
