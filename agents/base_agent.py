@@ -96,12 +96,13 @@ class LLMProvider:
     
     def get_provider_name(self) -> str:
         """Get human-readable provider name."""
-        names = {
-            "anthropic": "Anthropic Claude",
-            "openai": "OpenAI GPT",
-            "ollama": f"Ollama ({self.model})",
-        }
-        return names.get(self.provider, self.provider)
+        if self.provider == "anthropic":
+            return "Anthropic Claude"
+        elif self.provider == "openai":
+            return "OpenAI GPT"
+        elif self.provider == "ollama":
+            return f"Ollama ({self.model})"
+        return self.provider
     
     def call_with_tools(self, model: str, max_tokens: int, system: str, messages: list, tools: list = None) -> dict:
         """
