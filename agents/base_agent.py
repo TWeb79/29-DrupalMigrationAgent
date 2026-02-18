@@ -69,11 +69,12 @@ class LLMProvider:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable is required")
-            import openai as openai_module
+            from openai import OpenAI
             base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-            openai_module.api_key = api_key
-            openai_module.base_url = base_url
-            self.client = openai_module
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
         
         elif self.provider == "ollama":
             self.base_url = OLLAMA_BASE_URL
@@ -184,7 +185,50 @@ class LLMProvider:
         
         for msg in messages:
             if isinstance(msg, dict):
-                openai_messages.append(msg)
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                # Handle tool result messages - convert to OpenAI format
+                if role == "tool":
+                    # Tool results can be a list of results or a single result
+                    if isinstance(content, list):
+                        for tool_result in content:
+                            openai_messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_result.get("tool_call_id", ""),
+                                "content": str(tool_result.get("content", "")),
+                            })
+                    else:
+                        openai_messages.append({
+                            "role": "tool",
+                            "content": str(content),
+                        })
+                else:
+                    # Regular message - convert content if needed
+                    if isinstance(content, list):
+                        # Handle content blocks
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict):
+                                if block.get("type") == "text":
+                                    text_parts.append(str(block.get("text", "")))
+                                elif block.get("type") == "tool_result":
+                                    # Extract tool_result content
+                                    text_parts.append(str(block.get("text", "")))
+                            elif hasattr(block, "text"):
+                                text_parts.append(str(block.text))
+                        content = "\n".join(text_parts) if text_parts else ""
+                    
+                    openai_msg = {
+                        "role": role,
+                        "content": str(content) if content else "",
+                    }
+                    
+                    # IMPORTANT: Preserve tool_calls field if present (for assistant messages with tool use)
+                    if "tool_calls" in msg:
+                        openai_msg["tool_calls"] = msg["tool_calls"]
+                    
+                    openai_messages.append(openai_msg)
             elif hasattr(msg, "content"):
                 openai_messages.append({
                     "role": msg.role,
@@ -444,7 +488,25 @@ class BaseAgent:
 
             if response["stop_reason"] == "tool_use":
                 # Convert unified tool calls back to message format
-                messages.append({"role": "assistant", "content": response["content"]})
+                # Include tool_calls in the assistant message for OpenAI compatibility
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": response["content"]
+                }
+                if response.get("tool_calls"):
+                    assistant_msg["tool_calls"] = [
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["input"])
+                            }
+                        }
+                        for tc in response["tool_calls"]
+                    ]
+                messages.append(assistant_msg)
+                
                 tool_results = []
                 
                 logger.info(f"🔧 Tool calls: {len(response['tool_calls'])}")
@@ -459,13 +521,30 @@ class BaseAgent:
                     except Exception as e:
                         result = f"ERROR: {e}"
                         logger.error(f"  ✗ Error: {e}")
+                    
+                    # Store tool result with the tool_call_id for proper handling
                     tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tc["id"],
+                        "tool_call_id": tc["id"],
                         "content": str(result)[:8000],
                     })
-                messages.append({"role": "user", "content": tool_results})
-                messages.append({"role": "user", "content": tool_results})
+                
+                # Add tool results in the appropriate format for the LLM provider
+                if self.llm.provider == "anthropic":
+                    # Anthropic format: user message with tool_result content blocks
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": result["tool_call_id"],
+                                "content": result["content"],
+                            }
+                            for result in tool_results
+                        ]
+                    })
+                else:
+                    # OpenAI format: tool message with tool_call_id and content
+                    messages.append({"role": "tool", "content": tool_results})
             else:
                 break
         logger.warning("⚠ Agent loop ended without final response (max iterations reached)")

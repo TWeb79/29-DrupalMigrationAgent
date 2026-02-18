@@ -9,6 +9,9 @@ anthropic==0.25.0
 # OpenAI AI (optional)
 openai==1.37.0
 
+# HTTP client (pin version for compatibility)
+httpx>=0.25.0,<0.27.0
+
 # Web scraping
 requests==2.31.0
 beautifulsoup4==4.12.3
