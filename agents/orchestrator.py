@@ -208,13 +208,16 @@ class OrchestratorAgent:
             qa_result = await self.qa.run_qa()
             await self._mark_task(7, "done", f"{qa_result.get('score', 0)}% QA score")
 
+            # Get site URL for sharing
+            site_url = self.analyzer.drupal.get_site_url()
+            
             result = {
                 "status": "complete",
                 "job_id": self.job_id,
                 "built_pages": built_pages,
                 "test_score": test_result.get("overall_score", 0),
                 "qa_score": qa_result.get("score", 0),
-                "site_url": self.analyzer.drupal.get_site_url(),
+                "site_url": site_url,
                 "summary": self._build_summary(blueprint, built_pages, test_result, qa_result),
             }
 
@@ -223,7 +226,7 @@ class OrchestratorAgent:
                 "agent": "orchestrator",
                 "message": f"✅ Build complete! {len(built_pages)} pages live.",
                 "status": "done",
-                "detail": f"Test: {test_result.get('overall_score', 0)}% | QA: {qa_result.get('score', 0)}%",
+                "detail": f"🌐 URL: {site_url}\nTest: {test_result.get('overall_score', 0)}% | QA: {qa_result.get('score', 0)}%",
             })
             await self._emit({"type": "complete", **result})
 
