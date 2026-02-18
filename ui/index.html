@@ -10,10 +10,10 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 ::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:#0a0c14}
-::-webkit-scrollbar-thumb{background:#2a3045;border-radius:4px}
+::-webkit-scrollbar-track{background:var(--scroll-track)}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:4px}
 html,body,#root{height:100%;overflow:hidden}
-body{background:#090b14;color:#dde2f0;font-family:'DM Sans',sans-serif;font-size:13px}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -31,6 +31,20 @@ const e=React.createElement;
 /* ── Constants ─────────────────────────────────────────────── */
 const API_BASE = window.location.protocol+'//'+window.location.hostname+':5511';
 const WS_BASE  = 'ws://'+window.location.hostname+':5511';
+
+/* ── Theme ─────────────────────────────────────────────────────── */
+const THEMES = {
+  dark: {
+    bg: '#090b12', bgSecondary: '#0c0f1a', bgTertiary: '#101524',
+    border: '#1a2035', text: '#dde2f0', textSecondary: '#9ba8c0', textMuted: '#3b4a6b',
+    primary: '#7c6af7', primaryHover: '#a78bfa',
+  },
+  light: {
+    bg: '#f8fafc', bgSecondary: '#ffffff', bgTertiary: '#f1f5f9',
+    border: '#e2e8f0', text: '#1e293b', textSecondary: '#64748b', textMuted: '#94a3b8',
+    primary: '#6366f1', primaryHover: '#4f46e5',
+  },
+};
 
 const AGENTS = {
   orchestrator:{label:'Orchestrator',color:'#7c6af7',icon:'🧠'},
@@ -66,11 +80,11 @@ function Badge({agentKey,size='sm'}){
   }},a.icon,' ',a.label)
 }
 
-function StatusPill({status}){
+function StatusPill({status,theme}){
   const map={
     done:   {bg:'#052e16',c:'#4ade80',t:'Done'},
     active: {bg:'#1c1410',c:'#fb923c',t:'Running'},
-    pending:{bg:'#0f1524',c:'#3b4a6b',t:'Pending'},
+    pending:{bg:theme?.bgTertiary||'#0f1524',c:theme?.textMuted||'#3b4a6b',t:'Pending'},
     error:  {bg:'#2d0a10',c:'#f87171',t:'Error'},
     warn:   {bg:'#1c1410',c:'#fbbf24',t:'Warn'},
   };
@@ -92,9 +106,9 @@ function ProgressBar({percent,color='#7c6af7'}){
 }
 
 /* ── Header ────────────────────────────────────────────────── */
-function Header({drupalOk,agentsOk}){
+function Header({drupalOk,agentsOk,theme,setTheme}){
   return e('div',{style:{
-    height:48,background:'#0c0f1a',borderBottom:'1px solid #1a2035',
+    height:48,background:theme.bgSecondary,borderBottom:`1px solid ${theme.border}`,
     display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 20px',flexShrink:0
   }},
     e('div',{style:{display:'flex',alignItems:'center',gap:10}},
@@ -105,22 +119,31 @@ function Header({drupalOk,agentsOk}){
       }},'🧠'),
       e('span',{style:{fontWeight:700,fontSize:15,letterSpacing:'-.4px'}},'DrupalMind'),
       e('span',{style:{
-        fontSize:9,background:'#7c6af718',color:'#7c6af7',
-        border:'1px solid #7c6af730',borderRadius:4,padding:'1px 6px',
+        fontSize:9,background:theme.primary+'18',color:theme.primary,
+        border:`1px solid ${theme.primary}30`,borderRadius:4,padding:'1px 6px',
         fontFamily:'DM Mono,monospace',fontWeight:600
       }},'v0.1')
     ),
     e('div',{style:{display:'flex',alignItems:'center',gap:14}},
-      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#3b4a6b'}},
+      /* Theme Toggle */
+      e('button',{
+        onClick:()=>setTheme(theme===THEMES.dark?THEMES.light:THEMES.dark),
+        style:{
+          background:theme.bgTertiary,border:`1px solid ${theme.border}`,
+          borderRadius:6,padding:'5px 10px',cursor:'pointer',
+          fontSize:14,display:'flex',alignItems:'center',gap:4,color:theme.text
+        }
+      },theme===THEMES.dark?'🌙':'☀️'),
+      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:theme.textMuted}},
         e(Dot,{color:drupalOk?'#10b981':'#f87171',animate:false}),
         e('span',null,'Drupal: ',e('span',{style:{color:drupalOk?'#4ade80':'#f87171'}},drupalOk?'Connected':'Offline'))
       ),
-      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#3b4a6b'}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,color:theme.textMuted}},
         e(Dot,{color:agentsOk?'#10b981':'#f87171',animate:false}),
         e('span',null,'Agents: ',e('span',{style:{color:agentsOk?'#4ade80':'#f87171'}},agentsOk?'Ready':'Offline'))
       ),
       e('a',{href:'http://'+window.location.hostname+':5500',target:'_blank',style:{
-        background:'#7c6af718',color:'#7c6af7',border:'1px solid #7c6af730',
+        background:theme.primary+'18',color:theme.primary,border:`1px solid ${theme.primary}30`,
         borderRadius:6,padding:'4px 12px',fontSize:11,fontWeight:600,
         cursor:'pointer',textDecoration:'none'
       }},'Open Drupal ↗')
@@ -129,7 +152,7 @@ function Header({drupalOk,agentsOk}){
 }
 
 /* ── Input Panel ───────────────────────────────────────────── */
-function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
+function InputPanel({onStart,isRunning,progress,tasks,agentStates,theme}){
   const [url,setUrl]=useState('');
   const [desc,setDesc]=useState('');
   const [mode,setMode]=useState('url');
@@ -146,7 +169,7 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
   const pct=Math.round((done/total)*100);
 
   return e('div',{style:{
-    width:272,background:'#0c0f1a',borderRight:'1px solid #1a2035',
+    width:272,background:'var(--bg-secondary)',borderRight:'var(--border)',
     display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'
   }},
     /* Mode tabs */
@@ -158,8 +181,8 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
           e('button',{key:m,onClick:()=>setMode(m),style:{
             flex:1,padding:'5px 0',borderRadius:6,border:'none',cursor:'pointer',
             fontSize:10,fontWeight:700,
-            background:mode===m?'#7c6af7':'#151c2c',
-            color:mode===m?'#fff':'#3b4a6b',transition:'all .15s'
+            background:mode===m?theme.primary:theme.bgTertiary,
+            color:mode===m?'#fff':theme.textMuted,transition:'all .15s'
           }},m==='url'?'🔗 URL':'✏️ Describe')
         )
       ),
@@ -168,18 +191,18 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
             value:url,onChange:ev=>setUrl(ev.target.value),
             placeholder:'https://source-site.com',
             style:{
-              width:'100%',background:'#101524',border:'1px solid #1e2a40',
-              borderRadius:7,padding:'7px 10px',color:'#dde2f0',
+              width:'100%',background:theme.bgTertiary,border:'1px solid '+theme.border,
+              borderRadius:7,padding:'7px 10px',color:theme.text,
               fontSize:11,fontFamily:'DM Mono,monospace',outline:'none',
-              '::placeholder':{color:'#3b4a6b'}
+              '::placeholder':{color:theme.textMuted}
             }
           })
         : e('textarea',{
             value:desc,onChange:ev=>setDesc(ev.target.value),
             placeholder:'Describe the website you want to build...',
             rows:4,style:{
-              width:'100%',background:'#101524',border:'1px solid #1e2a40',
-              borderRadius:7,padding:'7px 10px',color:'#dde2f0',
+              width:'100%',background:theme.bgTertiary,border:'1px solid '+theme.border,
+              borderRadius:7,padding:'7px 10px',color:theme.text,
               fontSize:11,outline:'none',resize:'none',fontFamily:'DM Sans,sans-serif'
             }
           }),
@@ -187,12 +210,12 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
         [['full','Full site migration'],['structure','Structure only'],['single_page','Single page']].map(([val,label])=>
           e('label',{key:val,style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer'}},
             e('div',{onClick:()=>setScope(val),style:{
-              width:14,height:14,borderRadius:4,border:'1px solid #1e2a40',
-              background:scope===val?'#7c6af7':'transparent',
+              width:14,height:14,borderRadius:4,border:'1px solid '+theme.border,
+              background:scope===val?theme.primary:'transparent',
               display:'flex',alignItems:'center',justifyContent:'center',
               fontSize:9,color:'#fff',cursor:'pointer',flexShrink:0
             }},scope===val?'✓':''),
-            e('span',{style:{fontSize:11,color:'#6b7a9b',cursor:'pointer'},onClick:()=>setScope(val)},label)
+            e('span',{style:{fontSize:11,color:theme.textSecondary,cursor:'pointer'},onClick:()=>setScope(val)},label)
           )
         )
       ),
@@ -201,8 +224,8 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
         disabled:isRunning,
         style:{
           width:'100%',marginTop:12,padding:'9px 0',
-          background:isRunning?'#151c2c':'linear-gradient(135deg,#7c6af7,#a78bfa)',
-          color:isRunning?'#3b4a6b':'#fff',
+          background:isRunning?theme.bgTertiary:'linear-gradient(135deg,'+theme.primary+','+theme.primaryHover+')',
+          color:isRunning?theme.textMuted:'#fff',
           border:'none',borderRadius:8,fontSize:12,fontWeight:700,
           cursor:isRunning?'default':'pointer',transition:'all .2s'
         }
@@ -212,33 +235,33 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
     /* Progress */
     isRunning&&e('div',{style:{padding:'0 14px 12px'}},
       e('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:5}},
-        e('span',{style:{fontSize:10,color:'#3b4a6b'}},'Progress'),
-        e('span',{style:{fontSize:11,fontFamily:'DM Mono,monospace',color:'#7c6af7',fontWeight:700}},pct+'%')
+        e('span',{style:{fontSize:10,color:theme.textMuted}},'Progress'),
+        e('span',{style:{fontSize:11,fontFamily:'DM Mono,monospace',color:theme.primary,fontWeight:700}},pct+'%')
       ),
       e(ProgressBar,{percent:pct}),
-      e('div',{style:{marginTop:5,fontSize:10,color:'#3b4a6b'}},done+' / '+total+' tasks')
+      e('div',{style:{marginTop:5,fontSize:10,color:theme.textMuted}},done+' / '+total+' tasks')
     ),
 
-    e('div',{style:{height:'1px',background:'#1a2035',margin:'0 14px'}}),
+    e('div',{style:{height:'1px',background:'var(--border)',margin:'0 14px'}}),
 
     /* Agent status list */
     e('div',{style:{padding:'12px 14px',overflow:'auto',flex:1}},
-      e('div',{style:{fontSize:9,color:'#3b4a6b',fontWeight:700,letterSpacing:1.2,marginBottom:10,textTransform:'uppercase'}},
+      e('div',{style:{fontSize:9,color:theme.textMuted,fontWeight:700,letterSpacing:1.2,marginBottom:10,textTransform:'uppercase'}},
         'Agent Status'),
       Object.entries(AGENTS).map(([key,agent])=>{
         const state=(agentStates||{})[key]||'pending';
         return e('div',{key,style:{
           display:'flex',alignItems:'center',justifyContent:'space-between',
           padding:'6px 9px',borderRadius:7,marginBottom:3,
-          background:'#101524',border:'1px solid #1a2035',cursor:'default'
+          background:theme.bgTertiary,border:'1px solid '+theme.border,cursor:'default'
         }},
           e('div',{style:{display:'flex',alignItems:'center',gap:7}},
             e('span',{style:{fontSize:13}},(AGENTS[key]||{}).icon||'•'),
-            e('span',{style:{fontSize:11,fontWeight:500,color:'#9ba8c0'}},(AGENTS[key]||{}).label)
+            e('span',{style:{fontSize:11,fontWeight:500,color:theme.textSecondary}},(AGENTS[key]||{}).label)
           ),
           e('div',{style:{display:'flex',alignItems:'center',gap:5}},
             state==='active'&&e(Dot,{color:agent.color,animate:true}),
-            e(StatusPill,{status:state})
+            e(StatusPill,{status:state,theme})
           )
         )
       })
@@ -247,7 +270,7 @@ function InputPanel({onStart,isRunning,progress,tasks,agentStates}){
 }
 
 /* ── Log Panel ─────────────────────────────────────────────── */
-function LogPanel({logs}){
+function LogPanel({logs,theme}){
   const [expanded,setExpanded]=useState(null);
   const logRef=useRef(null);
 
@@ -259,9 +282,9 @@ function LogPanel({logs}){
 
   return e('div',{style:{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}},
     e('div',{style:{
-      padding:'8px 18px',borderBottom:'1px solid #1a2035',
+      padding:'8px 18px',borderBottom:'var(--border)',
       display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,
-      background:'#090b14'
+      background:'var(--bg)'
     }},
       e('span',{style:{fontSize:9,fontWeight:700,color:'#3b4a6b',letterSpacing:1.2,textTransform:'uppercase'}},
         'Live Agent Log'),
@@ -311,16 +334,16 @@ function LogPanel({logs}){
 }
 
 /* ── Task Board ────────────────────────────────────────────── */
-function TaskBoard({tasks}){
+function TaskBoard({tasks,theme}){
   const [activePhase,setActivePhase]=useState('Discovery');
   const filtered=(tasks||[]).filter(t=>t.section===activePhase);
 
-  return e('div',{style:{height:200,background:'#0c0f1a',borderTop:'1px solid #1a2035',flexShrink:0}},
+  return e('div',{style:{height:200,background:theme.bgSecondary,borderTop:'1px solid '+theme.border,flexShrink:0}},
     e('div',{style:{
       padding:'6px 18px',borderBottom:'1px solid #1a2035',
       display:'flex',alignItems:'center',gap:10,overflowX:'auto'
     }},
-      e('span',{style:{fontSize:9,fontWeight:700,color:'#3b4a6b',letterSpacing:1.2,textTransform:'uppercase',whiteSpace:'nowrap'}},
+      e('span',{style:{fontSize:9,fontWeight:700,color:theme.textMuted,letterSpacing:1.2,textTransform:'uppercase',whiteSpace:'nowrap'}},
         'Build Plan'),
       PHASES.map(ph=>{
         const pTasks=(tasks||[]).filter(t=>t.section===ph);
@@ -369,12 +392,12 @@ function TaskBoard({tasks}){
 }
 
 /* ── Preview Panel ─────────────────────────────────────────── */
-function PreviewPanel({blueprint,builtPages,testReport,qaReport,source,isRunning}){
+function PreviewPanel({blueprint,builtPages,testReport,qaReport,source,isRunning,theme}){
   const score=testReport?.overall_score||0;
   const qaScore=qaReport?.score||0;
 
   return e('div',{style:{
-    width:300,background:'#0c0f1a',borderLeft:'1px solid #1a2035',
+    width:300,background:'var(--bg-secondary)',borderLeft:'var(--border)',
     display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'
   }},
     e('div',{style:{
@@ -517,6 +540,7 @@ function PreviewPanel({blueprint,builtPages,testReport,qaReport,source,isRunning
 
 /* ── Main App ───────────────────────────────────────────────── */
 function App(){
+  const [theme,setTheme]=useState(THEMES.dark);
   const [logs,setLogs]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [agentStates,setAgentStates]=useState({});
@@ -531,8 +555,20 @@ function App(){
   const wsRef=useRef(null);
   const jobRef=useRef(null);
 
-  // Health check on mount
+  // Health check on mount + set CSS vars on theme change
   useEffect(()=>{
+    // Apply CSS variables
+    document.body.style.setProperty('--bg', theme.bg);
+    document.body.style.setProperty('--bg-secondary', theme.bgSecondary);
+    document.body.style.setProperty('--bg-tertiary', theme.bgTertiary);
+    document.body.style.setProperty('--border', theme.border);
+    document.body.style.setProperty('--text', theme.text);
+    document.body.style.setProperty('--text-secondary', theme.textSecondary);
+    document.body.style.setProperty('--text-muted', theme.textMuted);
+    document.body.style.setProperty('--primary', theme.primary);
+    document.body.style.setProperty('--scroll-track', theme.bgSecondary);
+    document.body.style.setProperty('--scroll-thumb', theme.border);
+    
     const check=async()=>{
       try{
         const r=await fetch(API_BASE+'/health');
@@ -544,7 +580,7 @@ function App(){
     check();
     const iv=setInterval(check,15000);
     return()=>clearInterval(iv);
-  },[]);
+  },[theme]);
 
   const connectWs=(jobId)=>{
     if(wsRef.current){wsRef.current.close();}
@@ -629,15 +665,15 @@ function App(){
     }
   },[isRunning]);
 
-  return e('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
-    e(Header,{drupalOk,agentsOk}),
+  return e('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',background:theme.bg,color:theme.text}},
+    e(Header,{drupalOk,agentsOk,theme,setTheme}),
     e('div',{style:{flex:1,display:'flex',overflow:'hidden'}},
-      e(InputPanel,{onStart:handleStart,isRunning,progress:0,tasks,agentStates}),
+      e(InputPanel,{onStart:handleStart,isRunning,progress:0,tasks,agentStates,theme}),
       e('div',{style:{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}},
-        e(LogPanel,{logs}),
-        e(TaskBoard,{tasks})
+        e(LogPanel,{logs,theme}),
+        e(TaskBoard,{tasks,theme})
       ),
-      e(PreviewPanel,{blueprint,builtPages,testReport,qaReport,source,isRunning})
+      e(PreviewPanel,{blueprint,builtPages,testReport,qaReport,source,isRunning,theme})
     )
   )
 }

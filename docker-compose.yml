@@ -98,7 +98,7 @@ services:
     container_name: drupalmind_ui
     restart: unless-stopped
     ports:
-      - "5510:3000"
+      - "5510:80"
     environment:
       DRUPAL_API_URL: http://drupal
       DRUPAL_API_USER: apiuser

@@ -5,6 +5,6 @@ COPY index.html /usr/share/nginx/html/index.html
 COPY DrupalMindUI.jsx /usr/share/nginx/html/DrupalMindUI.jsx
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 3000
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
