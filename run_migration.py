@@ -4,6 +4,11 @@ DrupalMind CLI - Command line tool to run migration with detailed debugging.
 Usage: python run_migration.py <source_url>
 
 This script runs the migration from the command line with full debug output.
+
+Environment Variables (for V5 features):
+  ENABLE_CONTENT_CONSOLIDATION=true|false - Enable content consolidation
+  ENABLE_SMART_SECTION_CLASSIFICATION=true|false - Enable smart section classification
+  ENABLE_PAGE_CENTRIC_MAPPING=true|false - Enable page-centric mapping
 """
 import asyncio
 import sys
@@ -17,6 +22,15 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='repla
 # Load environment variables from .env file
 from dotenv import load_dotenv
 load_dotenv()
+
+# Print V5 configuration status
+print("DrupalMind Version 5 - Content Migration Fixes")
+print("=" * 50)
+print("V5 Features:")
+print(f"  Content Consolidation: {os.getenv('ENABLE_CONTENT_CONSOLIDATION', 'true')}")
+print(f"  Smart Section Classification: {os.getenv('ENABLE_SMART_SECTION_CLASSIFICATION', 'true')}")
+print(f"  Page-Centric Mapping: {os.getenv('ENABLE_PAGE_CENTRIC_MAPPING', 'true')}")
+print("=" * 50)
 
 # Add the agents directory to the path
 agents_dir = os.path.join(os.path.dirname(__file__), 'agents')

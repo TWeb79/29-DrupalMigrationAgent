@@ -11,6 +11,7 @@ import re
 from typing import Any, Optional
 from base_agent import BaseAgent
 from memory import memory as shared_memory
+from bs4 import BeautifulSoup
 
 # Configure logging for BuildAgent
 logger = logging.getLogger("drupalmind.build")
@@ -29,6 +30,236 @@ FORBIDDEN_STYLE_PATTERNS = [
     r'style\s*[=:]\s*["\']?\s*z-index\s*:\s*9999',
 ]
 MAX_HTML_LENGTH = 50000
+
+
+class ContentAssembler:
+    """
+    V5: Assembles multiple content sections into unified Drupal pages
+    Preserves tables, lists, images, and other structured content
+    """
+    
+    def assemble_page_content(self, sections: list, page_info: dict) -> dict:
+        """
+        Combine sections into a single page body with proper structure preservation
+        """
+        assembled_content = {
+            "title": page_info.get("title"),
+            "body_html": "",
+            "sections_included": [],
+            "content_type": "page",
+            "metadata": {},
+            "structured_elements_count": 0,
+            "tables_preserved": 0,
+            "lists_preserved": 0,
+            "images_preserved": 0
+        }
+        
+        # 1. Identify hero/header section
+        hero_section = self._find_hero_section(sections)
+        if hero_section:
+            assembled_content["body_html"] += self._format_hero_html_v5(hero_section)
+            assembled_content["sections_included"].append(hero_section.get("index"))
+        
+        # 2. Assemble main content sections with structured content
+        main_sections = self._filter_main_content(sections)
+        for section in main_sections:
+            formatted_html = self._format_section_html_v5(section)
+            assembled_content["body_html"] += formatted_html
+            assembled_content["sections_included"].append(section.get("index"))
+            
+            # Count preserved elements
+            self._count_preserved_elements(section, assembled_content)
+        
+        # 3. Add supporting content with structure preservation
+        supporting_sections = self._filter_supporting_content(sections)
+        for section in supporting_sections:
+            formatted_html = self._format_supporting_html_v5(section)
+            assembled_content["body_html"] += formatted_html
+            assembled_content["sections_included"].append(section.get("index"))
+            
+            # Count preserved elements
+            self._count_preserved_elements(section, assembled_content)
+        
+        return assembled_content
+    
+    def _format_hero_html_v5(self, section: dict) -> str:
+        """V5: Format hero section preserving structured content"""
+        structured_elements = section.get("structured_elements", {})
+        
+        hero_html = f'<div class="hero-section">'
+        
+        # Add heading
+        if section.get('heading'):
+            hero_html += f'<h1>{section.get("heading")}</h1>'
+        
+        # Preserve full HTML structure instead of just text
+        if section.get("full_html"):
+            # Clean and preserve the original HTML structure
+            cleaned_html = self._preserve_structured_content(section.get("full_html"))
+            hero_html += f'<div class="hero-content">{cleaned_html}</div>'
+        else:
+            hero_html += f'<div class="hero-content">{section.get("text_preview", "")}</div>'
+        
+        hero_html += '</div>'
+        return hero_html
+    
+    def _format_section_html_v5(self, section: dict) -> str:
+        """V5: Format regular content section preserving all structured elements"""
+        section_html = f'<section class="content-section {section.get("type", "")}">'
+        
+        # Add section heading
+        if section.get('heading'):
+            section_html += f'<h2>{section.get("heading")}</h2>'
+        
+        # Preserve structured content
+        if section.get("full_html"):
+            preserved_html = self._preserve_structured_content(section.get("full_html"))
+            section_html += f'<div class="section-content">{preserved_html}</div>'
+        else:
+            section_html += f'<div class="section-content">{section.get("text_preview", "")}</div>'
+        
+        section_html += '</section>'
+        return section_html
+    
+    def _format_supporting_html_v5(self, section: dict) -> str:
+        """V5: Format supporting content with structure preservation"""
+        return self._format_section_html_v5(section)  # Same logic for now
+    
+    def _preserve_structured_content(self, html_content: str) -> str:
+        """
+        Preserve structured content elements (tables, lists, etc.) while cleaning unsafe content
+        """
+        if not html_content:
+            return ""
+        
+        # Parse HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove potentially unsafe elements
+        unsafe_tags = ['script', 'style', 'iframe', 'object', 'embed']
+        for tag in unsafe_tags:
+            for element in soup.find_all(tag):
+                element.decompose()
+        
+        # Return cleaned HTML with preserved structure
+        return str(soup)
+    
+    def _enhance_table_html(self, table) -> str:
+        """Enhance table HTML for better Drupal compatibility"""
+        soup = BeautifulSoup("", 'html.parser')
+        
+        # Add responsive table wrapper
+        if table.get('class'):
+            table['class'] = table.get('class', []) + ['drupal-table', 'responsive-table']
+        else:
+            table['class'] = ['drupal-table', 'responsive-table']
+        
+        # Ensure proper table structure
+        if not table.find('thead') and table.find('tr'):
+            # Convert first row to header if no thead exists
+            first_row = table.find('tr')
+            if first_row:
+                thead = soup.new_tag('thead')
+                tbody = soup.new_tag('tbody')
+                
+                # Move first row to thead
+                first_row.extract()
+                thead.append(first_row)
+                table.insert(0, thead)
+                
+                # Move remaining rows to tbody
+                for row in table.find_all('tr'):
+                    row.extract()
+                    tbody.append(row)
+                table.append(tbody)
+        
+        return str(table)
+    
+    def _enhance_list_html(self, list_elem) -> str:
+        """Enhance list HTML for better presentation"""
+        if list_elem.get('class'):
+            list_elem['class'] = list_elem.get('class', []) + ['drupal-list']
+        else:
+            list_elem['class'] = ['drupal-list']
+        return str(list_elem)
+    
+    def _enhance_image_html(self, img) -> str:
+        """Enhance image HTML with responsive attributes"""
+        if img.get('class'):
+            img['class'] = img.get('class', []) + ['drupal-image', 'responsive-image']
+        else:
+            img['class'] = ['drupal-image', 'responsive-image']
+        
+        # Add loading attribute for performance
+        img['loading'] = 'lazy'
+        
+        # Ensure alt text exists
+        if not img.get('alt'):
+            img['alt'] = 'Image'
+        
+        return str(img)
+    
+    def _enhance_code_html(self, code) -> str:
+        """Enhance code blocks with syntax highlighting classes"""
+        if code.get('class'):
+            code['class'] = code.get('class', []) + ['drupal-code']
+        else:
+            code['class'] = ['drupal-code']
+        return str(code)
+    
+    def _enhance_blockquote_html(self, blockquote) -> str:
+        """Enhance blockquote HTML"""
+        if blockquote.get('class'):
+            blockquote['class'] = blockquote.get('class', []) + ['drupal-blockquote']
+        else:
+            blockquote['class'] = ['drupal-blockquote']
+        return str(blockquote)
+    
+    def _count_preserved_elements(self, section: dict, assembled_content: dict):
+        """Count preserved structured elements for reporting"""
+        structured_elements = section.get("structured_elements", {})
+        
+        if structured_elements.get("tables"):
+            assembled_content["tables_preserved"] += len(structured_elements["tables"])
+        
+        if structured_elements.get("lists"):
+            assembled_content["lists_preserved"] += len(structured_elements["lists"])
+        
+        if structured_elements.get("images"):
+            assembled_content["images_preserved"] += len(structured_elements["images"])
+        
+        # Update total count
+        assembled_content["structured_elements_count"] = (
+            assembled_content["tables_preserved"] + 
+            assembled_content["lists_preserved"] + 
+            assembled_content["images_preserved"]
+        )
+    
+    def _find_hero_section(self, sections: list) -> Optional[dict]:
+        """Find the hero/banner section"""
+        for section in sections:
+            if section.get("type") in ["hero", "banner", "header"]:
+                return section
+            if section.get("index") == 0 and section.get("content_complexity", 0) > 0.3:
+                return section
+        return None
+    
+    def _filter_main_content(self, sections: list) -> list:
+        """Filter sections that contain main content"""
+        main_sections = []
+        for section in sections:
+            classification = section.get("classification", {})
+            if classification.get("is_primary_content") or section.get("type") in ["content", "about", "features"]:
+                main_sections.append(section)
+        return main_sections
+    
+    def _filter_supporting_content(self, sections: list) -> list:
+        """Filter sections that contain supporting content"""
+        supporting_sections = []
+        for section in sections:
+            if section.get("type") in ["testimonials", "team", "blog", "pricing"]:
+                supporting_sections.append(section)
+        return supporting_sections
 
 
 SYSTEM_PROMPT = """You are the BuildAgent for DrupalMind, an AI system that builds Drupal websites.
@@ -654,6 +885,14 @@ class BuildAgent(BaseAgent):
 
     def _run_build_loop(self, blueprint: dict) -> dict:
         """Use LLM to drive the build process."""
+        # Check if V5 content consolidation is enabled
+        from config import V5_FEATURES
+        
+        if V5_FEATURES.get("ENABLE_CONTENT_CONSOLIDATION", False):
+            # Use V5 build loop with content consolidation
+            return self._run_build_loop_v5(blueprint)
+        
+        # Fall back to original LLM-based build
         tools = self.COMMON_TOOLS + [
             {
                 "name": "get_blueprint",
@@ -742,6 +981,198 @@ class BuildAgent(BaseAgent):
         
         result = self.call_llm_with_tools(SYSTEM_PROMPT, messages, tools)
         return {"result": result, "built": self.memory.get_or_default("built_pages", [])}
+
+    def _run_build_loop_v5(self, blueprint: dict) -> dict:
+        """
+        V5: Build all pages with proper content consolidation
+        """
+        from config import V5_FEATURES
+        
+        # Get mapping manifest with consolidated mappings
+        mapping_manifest = self.get_mapping_manifest() or {}
+        consolidated_mappings = [m for m in mapping_manifest.get("mappings", []) 
+                           if m.get("element_type") == "consolidated_page"]
+        
+        built_pages = []
+        errors = []
+        
+        logger.info(f"[BUILD] Building {len(consolidated_mappings)} consolidated pages")
+        
+        # If no consolidated mappings, fall back to building individual pages
+        if not consolidated_mappings:
+            logger.info("[BUILD] No consolidated mappings found, building individual pages")
+            return self._build_individual_pages_v5(blueprint)
+        
+        for mapping in consolidated_mappings:
+            try:
+                # Build consolidated page
+                page_result = self._build_consolidated_page(mapping, blueprint)
+                
+                if page_result.get("success"):
+                    built_pages.append({
+                        "title": mapping.get("title"),
+                        "id": page_result.get("node_id"),
+                        "path": mapping.get("path"),
+                        "content_type": mapping.get("drupal_component"),
+                        "sections_count": mapping.get("section_count", 0)
+                    })
+                    logger.info(f"[BUILD] ✓ Built consolidated page: {mapping.get('title')}")
+                else:
+                    errors.append(f"Failed to build page: {mapping.get('title')}")
+                    logger.error(f"[BUILD] ✗ Failed to build page: {mapping.get('title')}: {page_result.get('error')}")
+                    
+            except Exception as e:
+                logger.error(f"[BUILD] ✗ Error building page {mapping.get('title')}: {e}")
+                errors.append(str(e))
+        
+        # Store built pages
+        self.memory.set("built_pages", built_pages)
+        
+        return {
+            "built_pages": len(built_pages),
+            "errors": errors,
+            "consolidation_successful": len(built_pages) > 0,
+            "detail": f"Built {len(built_pages)} consolidated pages"
+        }
+    
+    def _build_individual_pages_v5(self, blueprint: dict) -> dict:
+        """
+        V5: Build pages individually when no consolidated mappings exist
+        """
+        from config import V5_FEATURES
+        
+        # Initialize content assembler
+        assembler = ContentAssembler()
+        
+        built_pages = []
+        errors = []
+        pages = blueprint.get("pages", [])
+        sections = blueprint.get("sections", [])
+        
+        logger.info(f"[BUILD] Building {len(pages)} pages individually")
+        
+        for page in pages:
+            try:
+                # Find sections for this page
+                page_sections = [s for s in sections if s.get("index", -1) >= 0][:10]
+                
+                # Assemble content
+                assembled_content = assembler.assemble_page_content(page_sections, page)
+                
+                # Create node in Drupal
+                content_type = page.get("content_type", "page")
+                
+                node_data = {
+                    "title": page.get("title"),
+                    "body": {
+                        "value": assembled_content.get("body_html", ""),
+                        "format": "full_html"
+                    },
+                    "status": True
+                }
+                
+                if page.get("path") and page.get("path") != "/":
+                    node_data["path"] = {"alias": page.get("path")}
+                
+                # Validate payload
+                is_valid, error = self.validate_payload({
+                    "data": {
+                        "type": f"node--{content_type}",
+                        "attributes": node_data
+                    }
+                }, content_type)
+                
+                if not is_valid:
+                    errors.append(f"Validation failed for {page.get('title')}: {error}")
+                    continue
+                
+                # Create node
+                node = self.drupal.create_node(content_type, node_data)
+                
+                built_pages.append({
+                    "title": page.get("title"),
+                    "id": node.get("id"),
+                    "path": page.get("path"),
+                    "content_type": content_type,
+                    "sections_count": len(page_sections)
+                })
+                
+                logger.info(f"[BUILD] ✓ Built page: {page.get('title')} with {len(page_sections)} sections")
+                
+            except Exception as e:
+                logger.error(f"[BUILD] ✗ Error building page {page.get('title')}: {e}")
+                errors.append(str(e))
+        
+        # Store built pages
+        self.memory.set("built_pages", built_pages)
+        
+        return {
+            "built_pages": len(built_pages),
+            "errors": errors,
+            "consolidation_successful": len(built_pages) > 0,
+            "detail": f"Built {len(built_pages)} pages with content assembly"
+        }
+    
+    def _build_consolidated_page(self, mapping: dict, blueprint: dict) -> dict:
+        """
+        V5: Build a single consolidated page from multiple sections
+        """
+        from config import V5_FEATURES
+        
+        # Initialize content assembler
+        assembler = ContentAssembler()
+        
+        # Get sections for this page
+        section_indices = mapping.get("sections_included", [])
+        sections = blueprint.get("sections", [])
+        page_sections = [sections[i] for i in section_indices if i < len(sections)]
+        
+        # If no specific sections, get all content sections
+        if not page_sections:
+            page_sections = [s for s in sections if s.get("type") not in ["navigation", "header", "footer"]]
+        
+        # Assemble content
+        assembled_content = assembler.assemble_page_content(page_sections, mapping)
+        
+        # Get content type
+        content_type = mapping.get("drupal_component", "page")
+        
+        # Build node data
+        node_data = {
+            "title": mapping.get("title"),
+            "body": {
+                "value": assembled_content.get("body_html", ""),
+                "format": "full_html"
+            },
+            "status": True
+        }
+        
+        if mapping.get("path") and mapping.get("path") != "/":
+            node_data["path"] = {"alias": mapping.get("path")}
+        
+        # Validate content
+        is_valid, error = self.validate_payload({
+            "data": {
+                "type": f"node--{content_type}",
+                "attributes": node_data
+            }
+        }, content_type)
+        
+        if not is_valid:
+            return {"success": False, "error": error}
+        
+        # Create the node
+        try:
+            node = self.drupal.create_node(content_type, node_data)
+            
+            return {
+                "success": True,
+                "node_id": node.get("id"),
+                "sections_consolidated": len(page_sections)
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def _build_single_page(self, page_spec: dict) -> dict:
         """Build one page using LLM."""

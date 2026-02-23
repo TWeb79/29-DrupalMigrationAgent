@@ -416,6 +416,180 @@ class MappingAgent(BaseAgent):
         else:
             return f"No exact match found for '{section_type}', using default component"
 
+    # ── V5: Enhanced Section Hierarchy and Consolidated Mappings ──
+    
+    def _build_section_hierarchy(self, sections: list) -> dict:
+        """
+        V5: Build hierarchical relationships between sections
+        Returns: {primary_content: [], supporting_content: [], navigation: [], consolidation_groups: {}}
+        """
+        hierarchy = {
+            "primary_content": [],
+            "supporting_content": [],
+            "navigation": [],
+            "consolidation_groups": {}
+        }
+        
+        for section in sections:
+            classification = section.get("classification", {})
+            if classification.get("is_primary_content"):
+                hierarchy["primary_content"].append(section)
+            elif classification.get("type") == "navigation":
+                hierarchy["navigation"].append(section)
+            else:
+                hierarchy["supporting_content"].append(section)
+        
+        # Group sections that should be consolidated into single pages
+        hierarchy["consolidation_groups"] = self._create_consolidation_groups(sections)
+        
+        return hierarchy
+    
+    def _create_consolidation_groups(self, sections: list) -> dict:
+        """
+        V5: Create groups of sections that should be consolidated into single pages
+        """
+        groups = {}
+        
+        # Group by page based on section index
+        current_group = []
+        current_page = "page_1"
+        
+        for section in sections:
+            classification = section.get("classification", {})
+            section_type = section.get("type", "content")
+            
+            # Skip navigation elements for content grouping
+            if section_type in ["navigation", "header", "footer"]:
+                continue
+            
+            # Add to current group
+            current_group.append(section.get("index"))
+            
+            # Start new group for major sections
+            if section_type in ["hero", "about", "features", "contact"]:
+                if current_group:
+                    groups[current_page] = current_group
+                    current_group = []
+                current_page = f"page_{section.get('index')}"
+        
+        # Add final group
+        if current_group:
+            groups[current_page] = current_group
+        
+        return groups
+    
+    def _create_mappings_v5(self, blueprint: dict, envelopes: dict) -> list:
+        """
+        V5: Create page-centric mappings with section consolidation
+        """
+        mappings = []
+        
+        # Get section hierarchy
+        sections = blueprint.get("sections", [])
+        section_hierarchy = self._build_section_hierarchy(sections)
+        
+        # Map pages (primary entities)
+        pages = blueprint.get("pages", [])
+        for page in pages:
+            # Find sections that belong to this page
+            page_sections = self._find_page_sections(page, sections, section_hierarchy)
+            
+            # Create consolidated page mapping
+            mapping = {
+                "element_id": f"page_{page.get('path', '').replace('/', '_')}",
+                "element_type": "consolidated_page",
+                "source_type": "page_with_sections",
+                "title": page.get("title"),
+                "path": page.get("path"),
+                "drupal_component": page.get("content_type", "page"),
+                "sections_included": [s.get("index") for s in page_sections],
+                "section_count": len(page_sections),
+                "confidence": self._calculate_page_confidence(page, page_sections),
+                "fidelity_estimate": self._estimate_page_fidelity(page, page_sections),
+                "requires_review": len(page_sections) > 5,  # Complex pages need review
+                "reasoning": f"Consolidated page with {len(page_sections)} sections",
+                "compromises": self._identify_page_compromises(page, page_sections)
+            }
+            
+            mappings.append(mapping)
+        
+        # Map standalone sections (if any)
+        standalone_sections = self._find_standalone_sections(sections, section_hierarchy)
+        for section in standalone_sections:
+            mapping = self._map_section(section, envelopes, {})
+            mappings.append(mapping)
+        
+        return mappings
+    
+    def _find_page_sections(self, page: dict, sections: list, section_hierarchy: dict) -> list:
+        """Find sections that belong to a specific page"""
+        page_sections = []
+        page_path = page.get("path", "/")
+        
+        # For now, return all content sections for each page
+        # In a real implementation, this would analyze URL patterns
+        primary_content = section_hierarchy.get("primary_content", [])
+        supporting_content = section_hierarchy.get("supporting_content", [])
+        
+        return primary_content + supporting_content
+    
+    def _find_standalone_sections(self, sections: list, section_hierarchy: dict) -> list:
+        """Find sections not assigned to any page"""
+        # For V5, all content is assigned to pages
+        return []
+    
+    def _calculate_page_confidence(self, page: dict, sections: list) -> float:
+        """Calculate confidence score for page consolidation"""
+        base_confidence = 0.9  # High confidence for page-based approach
+        
+        # Reduce confidence for complex pages
+        if len(sections) > 5:
+            base_confidence -= 0.1
+        
+        # Reduce confidence if sections are very diverse
+        section_types = set(s.get("type") for s in sections)
+        if len(section_types) > 3:
+            base_confidence -= 0.1
+        
+        return max(0.5, base_confidence)
+    
+    def _estimate_page_fidelity(self, page: dict, sections: list) -> float:
+        """
+        V5: Estimate how well the consolidated page will match the source
+        """
+        base_fidelity = 0.8
+        
+        # Boost fidelity for pages with clear content structure
+        content_sections = [s for s in sections if s.get("classification", {}).get("is_primary_content")]
+        if content_sections:
+            base_fidelity += 0.1
+        
+        # Reduce fidelity for pages with complex navigation sections
+        nav_sections = [s for s in sections if s.get("type") == "navigation"]
+        if len(nav_sections) > 2:
+            base_fidelity -= 0.1
+        
+        # Boost fidelity for pages with substantial content
+        total_content_length = sum(len(s.get("text_preview", "")) for s in sections)
+        if total_content_length > 1000:
+            base_fidelity += 0.1
+        
+        return min(1.0, max(0.3, base_fidelity))
+    
+    def _identify_page_compromises(self, page: dict, sections: list) -> list:
+        """Identify compromises for consolidated page"""
+        compromises = []
+        
+        if len(sections) > 5:
+            compromises.append("Complex page with multiple sections may need manual review")
+        
+        # Check for missing structured content
+        has_tables = any(s.get("has_tables") for s in sections)
+        if has_tables:
+            compromises.append("Tables will be preserved as HTML in body field")
+        
+        return compromises
+
     # ── Tools ─────────────────────────────────────────────────────
 
     def _tool_get_mapping_manifest(self) -> str:

@@ -329,58 +329,384 @@ class AnalyzerAgent(BaseAgent):
         return nav_items[:12]
 
     def _extract_sections(self, soup: BeautifulSoup) -> list[dict]:
+        """
+        V5: Enhanced section extraction with structured content analysis
+        """
         sections = []
-        section_tags = soup.find_all(["section", "article", "header", "footer", "main", "aside"])
-        for i, tag in enumerate(section_tags[:15]):
+        section_tags = soup.find_all(["section", "article", "header", "footer", "main", "aside", "div"])
+        
+        for i, tag in enumerate(section_tags[:20]):  # Increased from 15 to 20
+            # Enhanced content extraction
+            structured_content = self._extract_structured_content(tag)
+            
+            # Get heading
             heading = tag.find(re.compile(r"^h[1-6]$"))
             heading_text = heading.get_text(strip=True) if heading else ""
-            text_content = tag.get_text(separator=" ", strip=True)[:400]
-
-            # Determine section type
+            
+            # Enhanced classification with position awareness
             classes = " ".join(tag.get("class", []))
             id_attr = tag.get("id", "")
-            section_type = self._classify_section(tag.name, classes, id_attr, text_content)
-
-            sections.append({
+            classification = self._classify_section_v5(
+                tag.name, classes, id_attr, 
+                structured_content["text_content"], i, len(section_tags)
+            )
+            
+            section = {
                 "index": i,
-                "type": section_type,
+                "type": classification["type"],
                 "tag": tag.name,
                 "heading": heading_text,
-                "text_preview": text_content[:200],
-                "has_images": bool(tag.find("img")),
-                "has_links": bool(tag.find("a")),
-                "has_form": bool(tag.find("form")),
-                "drupal_component": self._map_to_drupal_component(section_type),
-            })
+                "text_preview": structured_content["text_content"][:500],  # Increased from 200
+                "full_html": structured_content["full_html"],
+                "structured_elements": structured_content["elements"],
+                "has_images": structured_content["has_images"],
+                "has_links": structured_content["has_links"],
+                "has_form": structured_content["has_form"],
+                "has_tables": structured_content["has_tables"],
+                "has_lists": structured_content["has_lists"],
+                "has_code": structured_content["has_code"],
+                "has_media": structured_content["has_media"],
+                "content_complexity": structured_content["complexity_score"],
+                "classification": classification,
+                "drupal_component": self._map_to_drupal_component_v5(classification["type"], structured_content),
+            }
+            
+            sections.append(section)
+        
         return sections
 
-    def _classify_section(self, tag: str, classes: str, id_attr: str, text: str) -> str:
-        combined = f"{tag} {classes} {id_attr} {text}".lower()
-        if any(w in combined for w in ["hero", "banner", "jumbotron", "intro"]):
-            return "hero"
-        if any(w in combined for w in ["nav", "menu", "navigation", "header"]):
-            return "navigation"
-        if any(w in combined for w in ["feature", "service", "card", "grid"]):
-            return "features"
-        if any(w in combined for w in ["about", "mission", "vision", "story"]):
-            return "about"
-        if any(w in combined for w in ["blog", "news", "article", "post"]):
-            return "blog"
-        if any(w in combined for w in ["contact", "form", "reach", "touch"]):
-            return "contact"
-        if any(w in combined for w in ["footer", "copyright"]):
-            return "footer"
-        if any(w in combined for w in ["testimonial", "review", "quote"]):
-            return "testimonials"
-        if any(w in combined for w in ["team", "staff", "people", "member"]):
-            return "team"
-        if any(w in combined for w in ["pricing", "plan", "package"]):
-            return "pricing"
-        if tag == "header":
-            return "header"
-        if tag == "footer":
-            return "footer"
-        return "content"
+    def _classify_section_v5(self, tag: str, classes: str, id_attr: str, text: str, position: int, total_sections: int) -> dict:
+        """
+        V5: Enhanced section classification with content hierarchy and semantic analysis
+        Returns: {type: str, confidence: float, is_primary_content: bool, consolidation_group: str}
+        """
+        
+        # 1. Position-based classification
+        likely_header = position == 0
+        likely_footer = position == total_sections - 1
+        likely_content = not (likely_header or likely_footer)
+        
+        # 2. Content volume analysis
+        content_density = len(text.strip()) / max(len(text), 1)
+        has_substantial_content = len(text.strip()) > 200
+        
+        # 3. Semantic keyword analysis
+        navigation_keywords = ["nav", "menu", "header", "footer", "sidebar"]
+        content_keywords = ["article", "main", "content", "section", "post", "story", "about", "feature", "service"]
+        
+        keyword_score = 0
+        text_lower = text.lower()
+        classes_lower = classes.lower()
+        id_lower = id_attr.lower()
+        combined_lower = f"{text_lower} {classes_lower} {id_lower}"
+        
+        for kw in navigation_keywords:
+            if kw in combined_lower:
+                keyword_score -= 0.3
+        
+        for kw in content_keywords:
+            if kw in combined_lower:
+                keyword_score += 0.3
+        
+        # 4. HTML structure analysis
+        is_semantic_content = tag in ["main", "article", "section"]
+        is_navigation_element = tag in ["nav", "header", "footer", "aside"]
+        
+        # 5. Classification logic with confidence scoring
+        classification = {
+            "type": "content",  # default
+            "confidence": 0.5,
+            "is_primary_content": False,
+            "consolidation_group": "page_content",
+            "reasoning": []
+        }
+        
+        # Apply classification rules
+        
+        # Hero/banner detection (highest priority)
+        if any(w in combined_lower for w in ["hero", "banner", "jumbotron", "intro"]):
+            classification["type"] = "hero"
+            classification["confidence"] = 0.9
+            classification["is_primary_content"] = True
+            classification["reasoning"].append("Detected hero/banner pattern")
+        
+        # Navigation detection
+        elif is_navigation_element or any(w in combined_lower for w in ["nav", "menu", "navigation"]):
+            classification["type"] = "navigation"
+            classification["confidence"] = min(0.9, 0.6 + keyword_score)
+            classification["consolidation_group"] = "navigation"
+            classification["reasoning"].append("Navigation element detected")
+        
+        # Header (first section) - likely hero or navigation
+        elif likely_header and has_substantial_content:
+            classification["type"] = "hero"
+            classification["confidence"] = 0.7
+            classification["is_primary_content"] = True
+            classification["reasoning"].append("First section with substantial content - classified as hero")
+        
+        # Footer (last section)
+        elif likely_footer:
+            classification["type"] = "footer"
+            classification["confidence"] = 0.7
+            classification["consolidation_group"] = "navigation"
+            classification["reasoning"].append("Last section - classified as footer")
+        
+        # Content section based on semantic HTML
+        elif is_semantic_content and has_substantial_content:
+            classification["type"] = "content"
+            classification["confidence"] = 0.8
+            classification["is_primary_content"] = True
+            classification["reasoning"].append("Semantic content element with substantial text")
+        
+        # Content type specific detection
+        elif any(w in combined_lower for w in ["feature", "service", "card", "grid"]):
+            classification["type"] = "features"
+            classification["confidence"] = 0.8
+            classification["is_primary_content"] = True
+            classification["reasoning"].append("Features section detected")
+        elif any(w in combined_lower for w in ["about", "mission", "vision", "story"]):
+            classification["type"] = "about"
+            classification["confidence"] = 0.8
+            classification["is_primary_content"] = True
+            classification["reasoning"].append("About section detected")
+        elif any(w in combined_lower for w in ["blog", "news", "article", "post"]):
+            classification["type"] = "blog"
+            classification["confidence"] = 0.8
+            classification["reasoning"].append("Blog section detected")
+        elif any(w in combined_lower for w in ["contact", "form", "reach", "touch"]):
+            classification["type"] = "contact"
+            classification["confidence"] = 0.8
+            classification["reasoning"].append("Contact section detected")
+        elif any(w in combined_lower for w in ["testimonial", "review", "quote"]):
+            classification["type"] = "testimonials"
+            classification["confidence"] = 0.8
+            classification["reasoning"].append("Testimonials section detected")
+        elif any(w in combined_lower for w in ["team", "staff", "people", "member"]):
+            classification["type"] = "team"
+            classification["confidence"] = 0.8
+            classification["reasoning"].append("Team section detected")
+        elif any(w in combined_lower for w in ["pricing", "plan", "package"]):
+            classification["type"] = "pricing"
+            classification["confidence"] = 0.8
+            classification["reasoning"].append("Pricing section detected")
+        
+        # Default: content section with content-based confidence
+        else:
+            classification["confidence"] = 0.6 + keyword_score
+            if has_substantial_content:
+                classification["is_primary_content"] = True
+                classification["reasoning"].append("Substantial content section")
+        
+        # Ensure confidence is in valid range
+        classification["confidence"] = max(0.3, min(1.0, classification["confidence"]))
+        
+        return classification
+
+    def _extract_structured_content(self, tag) -> dict:
+        """
+        V5: Extract structured content elements from a section
+        """
+        # Get full HTML content (preserving structure)
+        full_html = str(tag)
+        
+        # Get clean text content (full, not truncated)
+        text_content = tag.get_text(separator=" ", strip=True)
+        
+        # Detect structured elements
+        tables = tag.find_all("table")
+        lists = tag.find_all(["ul", "ol", "dl"])
+        images = tag.find_all("img")
+        links = tag.find_all("a", href=True)
+        forms = tag.find_all("form")
+        code_blocks = tag.find_all(["code", "pre"])
+        media = tag.find_all(["video", "audio", "iframe"])
+        blockquotes = tag.find_all("blockquote")
+        
+        # Extract table data
+        table_data = []
+        for table in tables:
+            table_info = self._extract_table_structure(table)
+            table_data.append(table_info)
+        
+        # Extract list data
+        list_data = []
+        for list_elem in lists:
+            list_info = self._extract_list_structure(list_elem)
+            list_data.append(list_info)
+        
+        # Extract image data
+        image_data = []
+        for img in images:
+            img_info = {
+                "src": img.get("src", ""),
+                "alt": img.get("alt", ""),
+                "title": img.get("title", ""),
+                "width": img.get("width"),
+                "height": img.get("height")
+            }
+            image_data.append(img_info)
+        
+        # Calculate complexity score
+        complexity_score = self._calculate_content_complexity(
+            len(tables), len(lists), len(images), len(code_blocks), len(media)
+        )
+        
+        return {
+            "full_html": full_html,
+            "text_content": text_content,
+            "elements": {
+                "tables": table_data,
+                "lists": list_data,
+                "images": image_data,
+                "links": [{"href": a.get("href"), "text": a.get_text(strip=True)} for a in links[:10]],
+                "code_blocks": [{"language": self._detect_code_language(code), "content": code.get_text()} for code in code_blocks],
+                "media": [{"type": m.name, "src": m.get("src", "")} for m in media],
+                "blockquotes": [{"text": bq.get_text(strip=True)} for bq in blockquotes]
+            },
+            "has_images": len(images) > 0,
+            "has_links": len(links) > 0,
+            "has_form": len(forms) > 0,
+            "has_tables": len(tables) > 0,
+            "has_lists": len(lists) > 0,
+            "has_code": len(code_blocks) > 0,
+            "has_media": len(media) > 0,
+            "complexity_score": complexity_score
+        }
+
+    def _extract_table_structure(self, table) -> dict:
+        """Extract table structure and data"""
+        headers = []
+        rows = []
+        
+        # Extract headers
+        thead = table.find("thead")
+        if thead:
+            header_row = thead.find("tr")
+            if header_row:
+                headers = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])]
+        
+        # Extract data rows
+        tbody = table.find("tbody") or table
+        for tr in tbody.find_all("tr")[:10]:  # Limit to first 10 rows
+            row_data = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
+            if row_data:  # Skip empty rows
+                rows.append(row_data)
+        
+        return {
+            "headers": headers,
+            "rows": rows,
+            "row_count": len(rows),
+            "column_count": len(headers) if headers else (len(rows[0]) if rows else 0),
+            "html": str(table)
+        }
+
+    def _extract_list_structure(self, list_elem) -> dict:
+        """Extract list structure and items"""
+        list_type = list_elem.name  # ul, ol, dl
+        items = []
+        
+        if list_type in ["ul", "ol"]:
+            for li in list_elem.find_all("li", recursive=False):
+                items.append({
+                    "text": li.get_text(strip=True),
+                    "html": str(li)
+                })
+        elif list_type == "dl":
+            # Definition list
+            terms = list_elem.find_all("dt")
+            definitions = list_elem.find_all("dd")
+            for i, term in enumerate(terms):
+                definition = definitions[i] if i < len(definitions) else None
+                items.append({
+                    "term": term.get_text(strip=True),
+                    "definition": definition.get_text(strip=True) if definition else ""
+                })
+        
+        return {
+            "type": list_type,
+            "items": items[:20],  # Limit to first 20 items
+            "item_count": len(items),
+            "html": str(list_elem)
+        }
+
+    def _calculate_content_complexity(self, tables: int, lists: int, images: int, code: int, media: int) -> float:
+        """Calculate content complexity score (0-1)"""
+        base_score = 0.1
+        
+        # Add complexity for each element type
+        complexity_weights = {
+            "tables": 0.3,
+            "lists": 0.1,
+            "images": 0.15,
+            "code": 0.2,
+            "media": 0.25
+        }
+        
+        score = base_score
+        score += min(tables * complexity_weights["tables"], 0.3)
+        score += min(lists * complexity_weights["lists"], 0.2)
+        score += min(images * complexity_weights["images"], 0.3)
+        score += min(code * complexity_weights["code"], 0.2)
+        score += min(media * complexity_weights["media"], 0.3)
+        
+        return min(score, 1.0)
+
+    def _detect_code_language(self, code_elem) -> str:
+        """Detect programming language from code block"""
+        classes = code_elem.get("class", [])
+        for cls in classes:
+            if cls.startswith("language-"):
+                return cls.replace("language-", "")
+            elif cls.startswith("lang-"):
+                return cls.replace("lang-", "")
+        
+        # Try to detect from content
+        content = code_elem.get_text()[:100].lower()
+        if "function" in content and "{" in content:
+            return "javascript"
+        elif "def " in content and ":" in content:
+            return "python"
+        elif "<?php" in content:
+            return "php"
+        elif "<html" in content or "<div" in content:
+            return "html"
+        
+        return "text"
+
+    def _map_to_drupal_component_v5(self, section_type: str, structured_content: dict) -> str:
+        """
+        V5: Enhanced mapping considering structured content complexity
+        """
+        base_mapping = {
+            "hero": "page with hero paragraph + media field",
+            "navigation": "Drupal menu block",
+            "features": "view with custom display + structured content",
+            "about": "page with rich text + media gallery",
+            "blog": "article content type with rich formatting",
+            "contact": "contact form + custom fields",
+            "footer": "footer menu + custom block with structured content",
+            "testimonials": "testimonial content type with media",
+            "team": "team member content type with structured bio",
+            "pricing": "page with pricing table + comparison fields",
+            "content": "page with rich text formatting",
+        }
+        
+        base_component = base_mapping.get(section_type, "page with rich text")
+        
+        # Enhance based on content complexity
+        if structured_content.get("has_tables"):
+            base_component += " + table formatting"
+        
+        if structured_content.get("has_media"):
+            base_component += " + media gallery"
+        
+        if structured_content.get("has_code"):
+            base_component += " + code highlighting"
+        
+        if structured_content.get("complexity_score", 0) > 0.7:
+            base_component += " + custom layout"
+        
+        return base_component
 
     def _map_to_drupal_component(self, section_type: str) -> str:
         mapping = {

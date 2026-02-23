@@ -19,3 +19,23 @@ ENABLE_HUMAN_REVIEW = os.getenv("ENABLE_HUMAN_REVIEW", "true").lower() == "true"
 
 # Logging
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
+
+# V5 Configuration - Content Migration Fixes
+V5_FEATURES = {
+    "ENABLE_CONTENT_CONSOLIDATION": os.getenv("ENABLE_CONTENT_CONSOLIDATION", "true").lower() == "true",
+    "ENABLE_SMART_SECTION_CLASSIFICATION": os.getenv("ENABLE_SMART_SECTION_CLASSIFICATION", "true").lower() == "true",
+    "ENABLE_PAGE_CENTRIC_MAPPING": os.getenv("ENABLE_PAGE_CENTRIC_MAPPING", "true").lower() == "true",
+    "ENABLE_ENHANCED_VISUAL_DIFF": os.getenv("ENABLE_ENHANCED_VISUAL_DIFF", "true").lower() == "true",
+    "CONSOLIDATION_CONFIDENCE_THRESHOLD": float(os.getenv("CONSOLIDATION_CONFIDENCE_THRESHOLD", "0.7")),
+    "MAX_SECTIONS_PER_PAGE": int(os.getenv("MAX_SECTIONS_PER_PAGE", "10")),
+    "REQUIRE_REVIEW_FOR_COMPLEX_PAGES": os.getenv("REQUIRE_REVIEW_FOR_COMPLEX_PAGES", "true").lower() == "true"
+}
+
+# Content Assembly Configuration
+CONTENT_ASSEMBLY = {
+    "PRESERVE_SECTION_STRUCTURE": True,
+    "ADD_SECTION_WRAPPERS": True,
+    "CLEAN_HTML_CONTENT": True,
+    "MAX_CONTENT_LENGTH": 100000,
+    "SECTION_SEPARATOR": "\n\n"
+}

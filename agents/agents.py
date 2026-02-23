@@ -654,6 +654,18 @@ class QAAgent(BaseAgent):
             checks.append({"check": "Content Exists", "status": "error", "detail": str(e)})
             issues += 1
 
+        # V5: Check content consolidation success
+        try:
+            consolidation_check = self._run_qa_checks_v5()
+            checks.append(consolidation_check)
+            if consolidation_check.get("status") == "pass":
+                passed += 1
+            elif consolidation_check.get("status") in ["fail", "warn"]:
+                issues += 1
+        except Exception as e:
+            checks.append({"check": "Content Consolidation", "status": "error", "detail": str(e)})
+            issues += 1
+
         # Check navigation
         try:
             menu_items = self.drupal.get_menu_items("main")
@@ -727,3 +739,40 @@ class QAAgent(BaseAgent):
             "recommendations": recommendations,
             "approved": score >= 70,
         }
+    
+    def _run_qa_checks_v5(self) -> dict:
+        """
+        V5: Enhanced QA with content consolidation validation
+        """
+        from config import V5_FEATURES
+        
+        if not V5_FEATURES.get("ENABLE_CONTENT_CONSOLIDATION", False):
+            return {"check": "Content Consolidation", "status": "pass", "detail": "V5 consolidation disabled"}
+        
+        try:
+            blueprint = self.memory.get_blueprint()
+            built_pages = self.memory.get_or_default("built_pages", [])
+            
+            if not blueprint:
+                return {"check": "Content Consolidation", "status": "warn", "detail": "No blueprint found"}
+            
+            expected_pages = len(blueprint.get("pages", []))
+            actual_pages = len(built_pages)
+            
+            consolidation_ratio = actual_pages / max(expected_pages, 1)
+            
+            if consolidation_ratio >= 0.8:  # At least 80% of pages built
+                return {
+                    "check": "Content Consolidation",
+                    "status": "pass",
+                    "detail": f"{actual_pages}/{expected_pages} pages successfully consolidated"
+                }
+            else:
+                return {
+                    "check": "Content Consolidation",
+                    "status": "fail",
+                    "detail": f"Only {actual_pages}/{expected_pages} pages built - consolidation incomplete"
+                }
+                
+        except Exception as e:
+            return {"check": "Content Consolidation", "status": "error", "detail": f"Validation failed: {e}"}
