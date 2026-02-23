@@ -1,4 +1,4 @@
-# 🧠 DrupalMind — Agentic AI Website Builder
+# 🧠 DrupalMind — Agentic AI Website Builder (In Development)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Drupal-10+-0678BE?style=for-the-badge&logo=drupal" alt="Drupal 10">
@@ -10,6 +10,468 @@
 > Paste a URL. Watch AI agents build it in Drupal.
 
 DrupalMind is a multi-agent AI system (v2) that takes a source website URL or natural language description and autonomously builds a matching Drupal 10 site — structure, content, theme, menus, and all.
+
+---
+
+## 📊 Management Summary
+
+### What is DrupalMind?
+
+DrupalMind is an AI-powered migration system that analyzes a source website and automatically creates a Drupal 10 site. The system uses multiple specialized AI agents that work together to migrate structure, design, and content.
+
+### Core Process (11 Phases)
+
+| Phase | Agent | Description |
+|-------|-------|-------------|
+| 1 | **ProbeAgent** | Tests Drupal components empirically via API |
+| 2 | **AnalyzerAgent** | Scrapes and analyzes the source site |
+| 3 | **TrainAgent** | Learns available Drupal components |
+| 4 | **MappingAgent** | Maps source elements to Drupal components |
+| 5 | **BuildAgent** | Creates pages with refinement loops |
+| 6 | **ThemeAgent** | Applies design tokens and CSS |
+| 7 | **ContentAgent** | Migrates text and media content |
+| 8 | **TestAgent** | Compares result with source |
+| 9 | **QAAgent** | Performs quality checks |
+| 10 | **Review** | Human review gate |
+| 11 | **Publish** | Publication + learning capture |
+
+### Three-Loop System (v2)
+
+- **Micro-Loop**: Single component, max 5 iterations
+- **Meso-Loop**: Full page, until threshold reached
+- **Macro-Loop**: All migrations, permanently collects learnings
+
+### Quality Features
+
+| Feature | Description |
+|---------|-------------|
+| Visual Diff | Playwright renders source & Drupal, calculates perceptual hash similarity |
+| Payload Validator | Validates JSON:API payloads before sending |
+| Gap Report | List of all compromises with fidelity scores |
+| Cross-Migration Learning | Global knowledge base for successful patterns |
+
+### Technology Stack
+
+- **Frontend**: React + Nginx (Port 5510)
+- **Backend**: FastAPI + Python 3.12 (Port 5511)
+- **Database**: MySQL 8.0 + Redis 7
+- **LLM**: Anthropic Claude, OpenAI GPT-4, or Ollama
+- **Testing**: Playwright for visual comparisons
+
+---
+
+## 🤖 Agent Documentation
+
+### Agent Pipeline Overview
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Probe     │───▶│  Analyzer   │───▶│   Train     │───▶│  Mapping    │
+│   Agent     │    │   Agent     │    │   Agent     │    │   Agent     │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       │                                                    │
+       │                                                    ▼
+       │                                           ┌─────────────┐
+       │                                           │   Build     │
+       │                                           │   Agent     │◀────┐
+       │                                           └─────────────┘     │
+       │                                                  │            │
+       ▼                                                  ▼            │
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┤
+│   Theme     │    │  Content    │    │   Visual    │    │   Test      │
+│   Agent     │    │   Agent     │    │    Diff     │    │   Agent     │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+                                                                  │
+                                                                  ▼
+                                                           ┌─────────────┐
+                                                           │     QA      │
+                                                           │   Agent     │
+                                                           └─────────────┘
+```
+
+---
+
+### 1. ProbeAgent — Empirical Component Discovery
+
+**File**: [`agents/probe_agent.py`](agents/probe_agent.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 1 - Probe |
+| Main Role | Tests Drupal components through real API calls |
+| Output | Capability Envelopes in Redis |
+
+**Tasks:**
+- Tests each Drupal component through real API calls
+- Discovers which fields and parameters are accepted
+- Documents errors and successes
+- Builds verified "capability envelopes" for each component
+
+**High-Level Prompt:**
+```
+You are the ProbeAgent for DrupalMind. Your job is to:
+1. Test Drupal components by making real API calls
+2. Discover what fields and parameters are actually accepted
+3. Document what causes errors vs success
+4. Build a verified "capability envelope" for each component
+
+For each component you probe:
+- Try creating a minimal node with just required fields
+- Try adding optional fields one by one
+- Test edge cases (empty values, max lengths, special characters)
+- Document the exact payload that succeeded or failed
+- Record error messages so other agents can avoid mistakes
+
+Store results as capability envelopes in memory under key "capability_envelopes/{component_name}".
+```
+
+---
+
+### 2. AnalyzerAgent — Source Site Analysis
+
+**File**: [`agents/analyzer.py`](agents/analyzer.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 2 - Discovery |
+| Main Role | Scrapes and analyzes the source site |
+| Output | Site Blueprint with design tokens, navigation, pages |
+
+**Tasks:**
+- Scrapes source URL or analyzes descriptions
+- Extracts design tokens (colors, fonts)
+- Captures navigation and page structure
+- Creates reference screenshots for VisualDiff
+
+**Usage:**
+```python
+analyzer = AnalyzerAgent()
+blueprint = await analyzer.analyze(source_url, mode="url")
+```
+
+---
+
+### 3. TrainAgent — Drupal Knowledge
+
+**File**: [`agents/train_agent.py`](agents/train_agent.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 3 - Knowledge |
+| Main Role | Loads Drupal component knowledge for other agents |
+| Output | Formatted knowledge for downstream agents |
+
+**Tasks:**
+- Reads Capability Envelopes from ProbeAgent
+- Formats knowledge for downstream agents
+- Provides component knowledge via tools
+
+**High-Level Prompt:**
+```
+You are the TrainAgent for DrupalMind. Your job is to:
+1. Read capability envelopes from ProbeAgent (key: "capability_envelopes/*")
+2. Format this knowledge for downstream agents
+3. Make the component knowledge easily accessible via tools
+
+The capability envelopes contain verified information about what each component
+can actually do - discovered through empirical testing by ProbeAgent.
+```
+
+---
+
+### 4. MappingAgent — Component Mapping
+
+**File**: [`agents/mapping_agent.py`](agents/mapping_agent.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 4 - Mapping |
+| Main Role | Maps source elements to Drupal components |
+| Output | Mapping Manifest with confidence scores |
+
+**Tasks:**
+- Reads Site Blueprint and Capability Envelopes
+- Maps each source element to the best Drupal component
+- Assigns confidence scores (0-1) and fidelity estimates
+- Flags low-confidence items for human review
+- Creates mapping manifest for BuildAgent
+
+**High-Level Prompt:**
+```
+You are the MappingAgent for DrupalMind. Your job is to:
+1. Read the site blueprint (source elements)
+2. Read capability envelopes from ProbeAgent (what Drupal can do)
+3. Read global knowledge base (past successful mappings)
+4. Map each source element to the best available Drupal component
+5. Assign confidence scores (0-1) and fidelity estimates
+6. Flag low-confidence items for human review
+7. Produce a mapping manifest for BuildAgent
+
+For each source element, determine:
+- Best matching Drupal component
+- Confidence score (high: >0.8, medium: 0.5-0.8, low: <0.5)
+- Any compromises needed (e.g., "no image carousel available, will use grid")
+- Whether human review is needed
+
+Store the mapping manifest in memory under key "mapping_manifest".
+```
+
+---
+
+### 5. BuildAgent — Page Creation
+
+**File**: [`agents/build_agent.py`](agents/build_agent.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 5 - Build |
+| Main Role | Creates Drupal pages based on blueprint |
+| Output | Created pages, menu items |
+
+**Tasks:**
+- Reads Site Blueprint and Mapping Manifest
+- Creates pages in Drupal via JSON:API
+- Implements payload validator (prevents unsafe HTML)
+- Runs micro-loop (max 5 iterations per component)
+- Runs meso-loop (page refinement)
+- Integrates VisualDiffAgent after each placement
+
+**High-Level Prompt:**
+```
+You are the BuildAgent for DrupalMind, an AI system that builds Drupal websites.
+
+Your job is to build a Drupal site based on the Site Blueprint and Mapping Manifest.
+
+PROCESS:
+1. Read the site blueprint from memory (key: "site_blueprint")
+2. Read the mapping manifest (key: "mapping_manifest")
+3. Read available component knowledge (key: "capability_envelopes/*")
+4. For each page in the blueprint, create it in Drupal using the appropriate API calls
+5. Use payload validator before sending any content to Drupal
+6. Create navigation menu items for the main menu
+7. Report what you've built
+
+RULES:
+- Create ONE page per task
+- Use "basic_html" format for body fields unless full_html available
+- For hero sections, include a prominent heading in the body HTML
+- For navigation, use the "main" menu
+- Always set status: true to publish content
+- ALWAYS validate payloads before sending to Drupal
+```
+
+---
+
+### 6. ThemeAgent — Design Application
+
+**File**: [`agents/agents.py`](agents/agents.py:39)
+
+| Property | Value |
+|------------|------|
+| Phase | 6 - Theme |
+| Main Role | Applies design tokens and CSS |
+| Output | Custom Theme Block in Drupal |
+
+**Tasks:**
+- Reads design tokens from AnalyzerAgent
+- Generates CSS based on colors and fonts
+- Creates custom block with CSS in Drupal
+- Applies structured CSS to the theme
+
+**Usage:
+```python
+theme_agent = ThemeAgent()
+result = await theme_agent.apply_theme()
+```
+
+---
+
+### 7. ContentAgent — Content Migration
+
+**File**: [`agents/agents.py`](agents/agents.py:202)
+
+| Property | Value |
+|------------|------|
+| Phase | 7 - Content |
+| Main Role | Migrates text and media content |
+| Output | Migrated content in Drupal |
+
+**Tasks:**
+- Reads Site Blueprint with sections
+- Reads capability envelopes for field-level constraints
+- Migrates all section types (blog, team, testimonials, content, features, etc.)
+- Uses component templates for structured content
+- Handles images and media
+
+**v2 Features:**
+- Uses capability envelopes for field-level constraints
+- Uses component templates for structured content
+
+---
+
+### 8. VisualDiffAgent — Visual Comparison
+
+**File**: [`agents/visual_diff_agent.py`](agents/visual_diff_agent.py)
+
+| Property | Value |
+|------------|------|
+| Phase | 8 (after Build) - Visual Diff |
+| Main Role | Renders and compares source & Drupal visually |
+| Output | Similarity Score, Refinement Instructions |
+
+**Tasks:**
+- Renders source URL and Drupal page with Playwright
+- Computes perceptual hash similarity (0-1)
+- Identifies regions with significant differences
+- Generates actionable refinement instructions
+- Stores diff results for gap report
+
+**High-Level Prompt:**
+```
+You are the VisualDiffAgent for DrupalMind. Your job is to:
+1. Render both source URL and Drupal page using Playwright
+2. Compute perceptual hash similarity between the two renders
+3. Identify regions with significant differences
+4. Generate actionable refinement instructions for BuildAgent
+5. Store diff results in memory for the gap report
+
+The similarity score ranges from 0 (completely different) to 1 (identical).
+Scores above 0.85 are considered acceptable.
+```
+
+---
+
+### 9. TestAgent — Vergleichstests
+
+**File**: [`agents/agents.py`](agents/agents.py:428)
+
+| Property | Value |
+|------------|------|
+| Phase | 8 - Verify |
+| Main Role | Compares result with source specification |
+| Output | Test report with score |
+
+**Tasks:**
+- Checks if site blueprint exists
+- Verifies if pages were created
+- Checks navigation (menu items)
+- Compares with source specification
+- Calculates overall match score
+
+**Usage:**
+```python
+test_agent = TestAgent()
+result = await test_agent.run_tests()
+```
+
+---
+
+### 10. QAAgent — Quality Assurance
+
+**File**: [`agents/agents.py`](agents/agents.py:529)
+
+| Property | Value |
+|------------|------|
+| Phase | 9 - QA |
+| Main Role | Final quality checks and Gap Report |
+| Output | QA Report + Gap Report |
+
+**Tasks:**
+- Performs accessibility checks
+- Checks links and performance
+- Generates gap report with all compromises
+- Calculates fidelity scores
+- Writes cross-migration learnings to global knowledge base
+- Flags items for human review
+
+**Gap Report Structure:**
+```json
+{
+  "items": [
+    {
+      "element_type": "hero",
+      "source_type": "hero_with_cta",
+      "component_used": "hero_basic",
+      "fidelity_score": 0.85,
+      "compromises": ["No animated CTA available"]
+    }
+  ],
+  "average_fidelity": 0.87,
+  "requires_review": true
+}
+```
+
+---
+
+### OrchestratorAgent — Coordination
+
+**File**: [`agents/orchestrator.py`](agents/orchestrator.py)
+
+| Property | Value |
+|------------|------|
+| Phases | 10 (Review), 11 (Publish) |
+| Main Role | Coordinates all agents, manages build plan |
+
+**Tasks:**
+- Creates build plan with 11 phases
+- Dispatches to specialized agents
+- Streams progress events via WebSocket
+- Manages human review gate
+- Summarizes results and publishes
+
+---
+
+## 🔄 Detailed Process Flow
+
+### Preparation Phase
+
+1. **Start System**
+   ```bash
+   docker compose up -d drupal db phpmyadmin mailpit redis
+   ```
+   
+2. **Drupal Installation**
+   - Web installer at http://localhost:5500
+   - Database: `drupal` / User: `drupal` / Pass: `drupalpass123`
+   
+3. **Run Setup Script**
+   ```bash
+   docker cp scripts/setup-drupal.sh drupal:/tmp/
+   docker exec -it drupal bash /tmp/setup-drupal.sh
+   ```
+   
+4. **Start Agents**
+   ```bash
+   docker compose up -d drupalmind-agents drupalmind-ui
+   ```
+
+### Migration Phase
+
+1. **Enter URL** in DrupalMind UI (http://localhost:5510)
+2. **Orchestrator** creates build plan and starts pipeline
+3. **Agent Loop** runs through all 11 phases
+4. **Real-time progress** via WebSocket
+
+### Review Phase
+
+1. **Gap Report** shows all compromises
+2. **Visual Diff** shows before/after comparison
+3. **Human Review Gate** - approval required
+4. **Publish** - go live
+
+### Monitoring
+
+```bash
+# View logs
+docker compose logs -f drupalmind-agents
+
+# Check Redis contents
+docker exec -it redis redis-cli
+> KEYS *
+
+# API status
+curl http://localhost:5511/health
+```
 
 ---
 
