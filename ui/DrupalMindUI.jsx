@@ -179,6 +179,20 @@ export default function DrupalMind() {
             event_data: data.event_data || data.data || null,
             data_type: data.data?.data_type || null
           }]);
+        } else if (data.type === 'image') {
+          // Image events from agents (e.g. VisualDiffAgent.log_image)
+          // Treat them as log entries so they show up in the Live Agent Log
+          const label = data.data?.label || 'Screenshot';
+          setLogs(prev => [...prev, {
+            id: Date.now(),
+            agent: data.agent || 'visualdiff',
+            msg: label,
+            status: data.status || 'done',
+            // Non-empty detail so the row is expandable and can render the image
+            detail: label,
+            event_data: data.data || null,
+            data_type: 'image',
+          }]);
         } else if (data.type === 'started') {
           setBuildStatus('running');
         } else if (data.type === 'completed' || data.type === 'done') {
@@ -569,7 +583,7 @@ export default function DrupalMind() {
                   )}
                 </div>
               )}
-            )}
+            ))}
           </div>
 
           {/* Task Board */}
