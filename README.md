@@ -13,6 +13,47 @@ DrupalMind is a multi-agent AI system (v2) that takes a source website URL or na
 
 ---
 
+## 📋 Table of Contents
+
+- [� Management Summary](#-management-summary)
+  - [What is DrupalMind?](#what-is-drupalmind)
+  - [Core Process (11 Phases)](#core-process-11-phases)
+  - [Three-Loop System (v2)](#three-loop-system-v2)
+  - [Quality Features](#quality-features)
+  - [Technology Stack](#technology-stack)
+- [🤖 Agent Documentation](#-agent-documentation)
+  - [Agent Pipeline Overview](#agent-pipeline-overview)
+  - [1. ProbeAgent](#1-probeagent--empirical-component-discovery)
+  - [2. AnalyzerAgent](#2-analyzeragent--source-site-analysis)
+  - [3. TrainAgent](#3-trainagent--drupal-knowledge)
+  - [4. MappingAgent](#4-mappingagent--component-mapping)
+  - [5. BuildAgent](#5-buildagent--page-creation)
+  - [6. ThemeAgent](#6-themeagent--design-application)
+  - [7. ContentAgent](#7-contentagent--content-migration)
+  - [8. VisualDiffAgent](#8-visualdiffagent--visual-comparison)
+  - [9. TestAgent](#9-testagent--comparison-tests)
+  - [10. QAAgent](#10-qaagent--quality-assurance)
+  - [OrchestratorAgent](#orchestratoragent--coordination)
+- [🔄 Detailed Process Flow](#-detailed-process-flow)
+  - [Preparation Phase](#preparation-phase)
+  - [Migration Phase](#migration-phase)
+  - [Review Phase](#review-phase)
+  - [Monitoring](#monitoring)
+- [✨ Features](#-features)
+- [🏗️ Architecture](#-architecture)
+- [📌 Prerequisites](#-prerequisites)
+- [🚀 Quick Start](#-quick-start)
+- [⚙️ Configuration](#-configuration)
+- [📝 Environment Variables](#-environment-variables)
+- [🐳 Services](#-services)
+- [📂 Project Structure](#-project-structure)
+- [💻 CLI Usage](#-cli-usage)
+- [🔧 Development](#-development)
+- [📖 Documentation](#-documentation)
+- [📄 License](#-license)
+
+---
+
 ## 📊 Management Summary
 
 ### What is DrupalMind?
