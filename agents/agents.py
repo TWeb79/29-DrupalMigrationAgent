@@ -11,6 +11,22 @@ from base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
+# Import validators for content validation
+try:
+    from validators import ContentValidator
+    VALIDATOR_AVAILABLE = True
+except ImportError:
+    VALIDATOR_AVAILABLE = False
+    logger.warning("ContentValidator not available - content validation disabled")
+
+# Import media migrator for media migration
+try:
+    from media_migrator import MediaMigrator
+    MEDIA_MIGRATOR_AVAILABLE = True
+except ImportError:
+    MEDIA_MIGRATOR_AVAILABLE = False
+    logger.warning("MediaMigrator not available - media migration disabled")
+
 
 class ThemeAgent(BaseAgent):
     def __init__(self):
@@ -344,6 +360,7 @@ class ContentAgent(BaseAgent):
 
     def _apply_field_constraints(self, content_type: str, title: str, body_text: str, constraints: dict) -> dict:
         """Apply field constraints when creating content."""
+        # Start with title and body
         node_data = {
             "title": title[:constraints.get("max_title_length", 255)],
             "status": True,
@@ -353,8 +370,31 @@ class ContentAgent(BaseAgent):
         format_choice = constraints.get("allowed_formats", ["basic_html"])[0]
         
         # Build body field with proper format
+        body_html = f"<p>{body_text}</p>"
+        
+        # Apply content validation if available
+        if VALIDATOR_AVAILABLE:
+            try:
+                validator = ContentValidator()
+                validation_result = validator.validate_content({
+                    "title": title,
+                    "body": body_html
+                })
+                
+                if not validation_result["is_valid"]:
+                    logger.warning(f"[CONTENT] Validation issues: {validation_result['issues']}")
+                
+                if validation_result.get("warnings"):
+                    logger.warning(f"[CONTENT] Validation warnings: {validation_result['warnings']}")
+                
+                # Use validated content
+                body_html = validation_result["content"].get("body", body_html)
+                
+            except Exception as e:
+                logger.warning(f"[CONTENT] Validation failed: {e}")
+        
         node_data["body"] = {
-            "value": f"<p>{body_text}</p>",
+            "value": body_html,
             "format": format_choice
         }
         

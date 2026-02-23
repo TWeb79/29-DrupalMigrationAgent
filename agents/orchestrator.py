@@ -8,7 +8,11 @@ import asyncio
 import time
 import uuid
 import logging
-from typing import Callable, Optional
+import requests
+from typing import Callable, Optional, Dict, List, Any
+from dataclasses import dataclass, field
+from enum import Enum
+from datetime import datetime
 
 from memory import memory
 from analyzer import AnalyzerAgent
@@ -18,9 +22,72 @@ from agents import ThemeAgent, ContentAgent, TestAgent, QAAgent
 from probe_agent import ProbeAgent
 from mapping_agent import MappingAgent
 from visual_diff_agent import VisualDiffAgent
+from drupal_client import DrupalClient
 
 # Configure logging for OrchestratorAgent
 logger = logging.getLogger("drupalmind.orchestrator")
+
+
+class MigrationStatus(Enum):
+    """Migration completion status."""
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    FAILED = "failed"
+    RUNNING = "running"
+
+
+@dataclass
+class MigrationReport:
+    """Detailed migration report with status tracking."""
+    status: MigrationStatus = MigrationStatus.RUNNING
+    completion_percentage: int = 0
+    completed_phases: List[str] = field(default_factory=list)
+    failed_phases: Dict[str, str] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    artifacts: Dict[str, Any] = field(default_factory=dict)
+    start_time: datetime = field(default_factory=datetime.now)
+    end_time: Optional[datetime] = None
+    
+    def add_completed_phase(self, phase: str):
+        if phase not in self.completed_phases:
+            self.completed_phases.append(phase)
+            self._update_completion()
+    
+    def add_failed_phase(self, phase: str, error: str):
+        self.failed_phases[phase] = error
+        self._update_completion()
+    
+    def add_warning(self, warning: str):
+        if warning not in self.warnings:
+            self.warnings.append(warning)
+    
+    def add_error(self, error: str):
+        if error not in self.errors:
+            self.errors.append(error)
+    
+    def _update_completion(self):
+        total_phases = 11
+        completed = len(self.completed_phases)
+        self.completion_percentage = int((completed / total_phases) * 100)
+    
+    def finalize(self, status: MigrationStatus):
+        self.status = status
+        self.end_time = datetime.now()
+        if not self.failed_phases:
+            self.completion_percentage = 100
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status.value,
+            "completion_percentage": self.completion_percentage,
+            "completed_phases": self.completed_phases,
+            "failed_phases": self.failed_phases,
+            "warnings": self.warnings,
+            "errors": self.errors,
+            "artifacts": self.artifacts,
+            "duration_seconds": (self.end_time - self.start_time).total_seconds() if self.end_time else None,
+        }
 
 
 BUILD_PHASES = [
@@ -59,6 +126,62 @@ class OrchestratorAgent:
         for agent in [self.prober, self.analyzer, self.trainer, self.mapper,
                       self.builder, self.themer, self.content, self.tester, self.qa]:
             agent.set_log_callback(self._relay_log)
+    
+    # ── Preflight Checks ─────────────────────────────────────
+    
+    async def _preflight_checks(self, source_url: str, report: MigrationReport) -> bool:
+        """
+        Validate prerequisites before starting migration.
+        Returns True if all checks pass, False otherwise.
+        """
+        import os
+        logger.info("Running preflight checks...")
+        
+        checks = [
+            ("Source URL provided", bool(source_url)),
+            ("Source URL valid", source_url.startswith("http") if source_url else False),
+        ]
+        
+        # Check LLM provider configuration
+        llm_provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+        if llm_provider == "anthropic":
+            checks.append(("Anthropic API key set", bool(os.getenv("ANTHROPIC_API_KEY"))))
+        elif llm_provider == "openai":
+            checks.append(("OpenAI API key set", bool(os.getenv("OPENAI_API_KEY"))))
+        elif llm_provider == "ollama":
+            checks.append(("Ollama configured", bool(os.getenv("OLLAMA_BASE_URL"))))
+        
+        # Check Drupal connectivity (non-blocking)
+        drupal_url = os.getenv("DRUPAL_API_URL", "http://drupal")
+        try:
+            response = requests.get(f"{drupal_url}/jsonapi", timeout=5)
+            checks.append(("Drupal API reachable", response.status_code in [200, 401]))
+        except Exception as e:
+            logger.warning(f"Drupal API check failed: {e}")
+            checks.append(("Drupal API reachable", False))
+        
+        # Check Redis connectivity
+        try:
+            if hasattr(memory, '_redis') and memory._redis:
+                memory._redis.ping()
+                checks.append(("Redis connected", True))
+            else:
+                checks.append(("Redis connected", True))  # Assume OK if not available
+        except Exception as e:
+            logger.warning(f"Redis check failed: {e}")
+            checks.append(("Redis connected", False))
+        
+        # Run checks
+        all_passed = True
+        for check_name, is_ok in checks:
+            if not is_ok:
+                report.add_error(f"Preflight check failed: {check_name}")
+                logger.error(f"✗ Preflight failed: {check_name}")
+                all_passed = False
+            else:
+                logger.info(f"✓ Preflight passed: {check_name}")
+        
+        return all_passed
 
     # ── Broadcast helpers ─────────────────────────────────────
 
@@ -157,11 +280,14 @@ class OrchestratorAgent:
         logger.info(f"║ Source: {source[:80]}... | Mode: {mode}")
         logger.info(f"══════════════════════════════════════════════════════════════")
         
+        # Create migration report for tracking
+        report = MigrationReport()
+        
         self.job_id = job_id or str(uuid.uuid4())[:8]
         memory.clear_job(self.job_id)
 
         plan = self._init_build_plan(source, mode)
-        await self._emit({"type": "started", "job_id": self.job_id, "tasks": plan["tasks"]})
+        await self._emit({"type": "started", "job_id": self.job_id, "tasks": plan["tasks"], "report": report.to_dict()})
         await self._relay_log({
             "type": "log",
             "agent": "orchestrator",
@@ -173,10 +299,28 @@ class OrchestratorAgent:
         result = {}
 
         try:
+            # ── Preflight Checks ────────────────────────────────────
+            if not await self._preflight_checks(source, report):
+                report.finalize(MigrationStatus.FAILED)
+                result = {
+                    "status": "failed",
+                    "job_id": self.job_id,
+                    "error": "Preflight checks failed",
+                    "report": report.to_dict(),
+                }
+                await self._emit({"type": "error", "message": "Preflight checks failed", "report": report.to_dict()})
+                return result
+            
             # ── Phase 1: Probe ─────────────────────────────────────
             logger.info("PHASE 1: PROBE - Starting...")
             await self._mark_task(1, "active")
-            probe_result = await self.prober.probe_all()
+            try:
+                probe_result = await self.prober.probe_all()
+                report.add_completed_phase("probe")
+            except Exception as e:
+                report.add_failed_phase("probe", str(e))
+                report.add_warning(f"Probe failed (non-blocking): {str(e)}")
+                probe_result = {"envelopes_count": 0}
             
             # Ensure probe_result is a dict
             if not isinstance(probe_result, dict):
@@ -346,14 +490,33 @@ class OrchestratorAgent:
             except:
                 site_url = ""
             
+            # Determine final status
+            if report.failed_phases:
+                if report.completed_phases:
+                    report.finalize(MigrationStatus.PARTIAL_SUCCESS)
+                else:
+                    report.finalize(MigrationStatus.FAILED)
+            else:
+                report.finalize(MigrationStatus.SUCCESS)
+            
+            # Store artifacts in report
+            report.artifacts = {
+                "blueprint": blueprint,
+                "built_pages": built_pages,
+                "test_result": test_result,
+                "qa_result": qa_result,
+                "mapping_manifest": mapping_manifest,
+            }
+            
             result = {
-                "status": "complete",
+                "status": report.status.value,
                 "job_id": self.job_id,
                 "built_pages": built_pages,
                 "test_score": test_result.get("overall_score", 0),
                 "qa_score": qa_result.get("score", 0),
                 "site_url": site_url,
                 "summary": self._build_summary(blueprint, built_pages, test_result, qa_result),
+                "report": report.to_dict(),
             }
 
             await self._relay_log({
@@ -361,14 +524,20 @@ class OrchestratorAgent:
                 "agent": "orchestrator",
                 "message": f"✅ Build complete! {len(built_pages)} pages live.",
                 "status": "done",
-                "detail": f"🌐 URL: {site_url}\nTest: {test_result.get('overall_score', 0)}% | QA: {qa_result.get('score', 0)}%",
+                "detail": f"🌐 URL: {site_url}\nTest: {test_result.get('overall_score', 0)}% | QA: {qa_result.get('score', 0)}%\nReport: {report.status.value} ({report.completion_percentage}%)",
             })
             await self._emit({"type": "complete", **result})
 
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            result = {"status": "error", "error": str(e)}
+            report.add_error(str(e))
+            report.finalize(MigrationStatus.FAILED)
+            result = {
+                "status": "error", 
+                "error": str(e),
+                "report": report.to_dict(),
+            }
             await self._relay_log({
                 "type": "log",
                 "agent": "orchestrator",
@@ -376,7 +545,7 @@ class OrchestratorAgent:
                 "status": "error",
                 "detail": f"{e}\n\nTraceback:\n{tb}",
             })
-            await self._emit({"type": "error", "message": str(e)})
+            await self._emit({"type": "error", "message": str(e), "report": report.to_dict()})
 
         memory.set(f"job_{self.job_id}_result", result)
         return result
