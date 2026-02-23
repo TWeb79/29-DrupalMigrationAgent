@@ -6,7 +6,10 @@ and injects it into Drupal via a custom block.
 import json
 import asyncio
 import re
+import logging
 from base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class ThemeAgent(BaseAgent):
@@ -173,65 +176,189 @@ nav a {{
 
 
 class ContentAgent(BaseAgent):
-    """Migrates actual content from source site into Drupal."""
+    """Migrates actual content from source site into Drupal.
+    v2: Uses capability envelopes to apply field-level constraints proactively."""
 
     def __init__(self):
         super().__init__("content", "ContentAgent")
 
     async def migrate_content(self) -> dict:
         await self.log("Starting content migration...")
+        
+        # Log migration start with details
+        await self.log_extended("content_migration_start", {
+            "blueprint_loaded": True,
+        })
+        
         blueprint = self.memory.get_blueprint()
         if not blueprint:
             await self.log_error("No blueprint found")
+            await self.log_extended("content_migration_error", {"error": "No blueprint"})
             return {"error": "No blueprint"}
 
-        result = await asyncio.to_thread(self._migrate_all, blueprint)
+        # Log blueprint content summary
+        await self.log_data("migration_source", {
+            "pages_count": len(blueprint.get("pages", [])),
+            "sections_count": len(blueprint.get("sections", [])),
+            "nav_items_count": len(blueprint.get("navigation", [])),
+            "title": blueprint.get("title"),
+        }, summary=f"Source: {blueprint.get('title')} - {len(blueprint.get('sections', []))} sections")
+
+        # Load capability envelopes for field constraints
+        envelopes = self._load_capability_envelopes()
+        
+        # Log loaded envelopes
+        await self.log_data("capability_envelopes", {
+            "loaded": list(envelopes.keys()),
+            "count": len(envelopes),
+        }, summary=f"Loaded {len(envelopes)} capability envelopes")
+        
+        # Show field constraints for each content type
+        for content_type, envelope in envelopes.items():
+            constraints = envelope.get("field_constraints", {})
+            await self.log_data(f"envelope_{content_type}", {
+                "content_type": content_type,
+                "field_constraints": constraints,
+            }, summary=f"{content_type}: {len(constraints)} field constraints")
+        
+        result = await asyncio.to_thread(self._migrate_all, blueprint, envelopes)
+        
+        # Log migration results
+        await self.log_extended("content_migration_complete", {
+            "created": result.get("created", 0),
+            "errors_count": len(result.get("errors", [])),
+        })
+        
         await self.log_done(
             f"Content migration done — {result.get('created', 0)} items created",
             detail=result.get("detail", "")
         )
         return result
 
-    def _migrate_all(self, blueprint: dict) -> dict:
+    def _load_capability_envelopes(self) -> dict:
+        """Load capability envelopes for field constraints."""
+        from memory import memory as shared_memory
+        envelopes = {}
+        
+        # Get all envelopes
+        envelope_keys = shared_memory.list_capability_envelopes()
+        for key in envelope_keys:
+            envelope = shared_memory.get_capability_envelope(key)
+            if envelope:
+                envelopes[key] = envelope
+        
+        return envelopes
+
+    def _migrate_all(self, blueprint: dict, envelopes: dict) -> dict:
+        """Migrate content using capability envelopes for constraints."""
         created = 0
         errors = []
 
+        # Get field constraints from envelope for article content type
+        article_envelope = envelopes.get("article", {})
+        field_constraints = self._extract_field_constraints(article_envelope)
+        
+        logger.info(f"[CONTENT] Starting migration with {len(field_constraints)} field constraints for article")
+        
         # Create taxonomy terms from navigation-derived categories
         nav_items = blueprint.get("navigation", [])
         if nav_items:
+            logger.info(f"[CONTENT] Creating taxonomy terms from {len(nav_items)} navigation items")
             try:
                 for item in nav_items[:5]:
                     if item["title"].lower() not in ("home", "contact"):
                         try:
+                            logger.info(f"[CONTENT] Creating tag: {item['title']}")
                             self.drupal.create_term("tags", item["title"])
-                        except Exception:
+                        except Exception as e:
+                            logger.warning(f"[CONTENT] Failed to create tag {item['title']}: {e}")
                             pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[CONTENT] Error creating taxonomy terms: {e}")
 
-        # Create sample article nodes from blog sections
+        # Create article nodes from blog sections with field constraints
         sections = blueprint.get("sections", [])
-        for section in sections:
-            if section.get("type") in ("blog", "team", "testimonials"):
-                try:
-                    heading = section.get("heading", "Sample Post")
-                    text = section.get("text_preview", "Content migrated by DrupalMind.")
-                    body = f"<p>{text}</p>"
-                    node = self.drupal.create_node("article", {
-                        "title": heading or "Migrated Content",
-                        "body": {"value": body, "format": "basic_html"},
-                        "status": True,
-                    })
-                    created += 1
-                except Exception as e:
-                    errors.append(str(e))
+        sections_to_migrate = [s for s in sections if s.get("type") in ("blog", "team", "testimonials")]
+        logger.info(f"[CONTENT] Found {len(sections_to_migrate)} sections to migrate (blog/team/testimonials)")
+        
+        for i, section in enumerate(sections_to_migrate):
+            try:
+                heading = section.get("heading", "Sample Post")
+                text = section.get("text_preview", "Content migrated by DrupalMind.")
+                section_type = section.get("type", "unknown")
+                
+                logger.info(f"[CONTENT] Migrating section {i+1}/{len(sections_to_migrate)}: {heading} (type: {section_type})")
+                logger.info(f"[CONTENT]   Text preview: {text[:80]}...")
+                
+                # Apply field constraints from envelope
+                node_data = self._apply_field_constraints(
+                    content_type="article",
+                    title=heading,
+                    body_text=text,
+                    constraints=field_constraints
+                )
+                
+                logger.info(f"[CONTENT]   Applying field constraints: {list(node_data.keys())}")
+                
+                node = self.drupal.create_node("article", node_data)
+                node_id = node.get("id", "unknown")
+                nid = node.get("attributes", {}).get("drupal_internal__nid", "unknown")
+                logger.info(f"[CONTENT]   ✓ Created article node: ID={node_id}, NID={nid}")
+                
+                created += 1
+            except Exception as e:
+                logger.error(f"[CONTENT]   ✗ Failed to migrate section '{heading}': {e}")
+                errors.append(str(e))
 
         self.memory.set("content_migration", {"created": created, "errors": errors})
         return {
             "created": created,
             "errors": errors[:3],
-            "detail": f"Tags, articles created from {len(sections)} source sections"
+            "detail": f"Tags, articles created from {len(sections)} source sections with field constraints",
+            "sections_migrated": len(sections_to_migrate),
+            "taxonomy_terms_created": min(len(nav_items), 5),
         }
+
+    def _extract_field_constraints(self, envelope: dict) -> dict:
+        """Extract field constraints from capability envelope."""
+        constraints = {
+            "max_title_length": 255,
+            "allowed_formats": ["basic_html", "plain_text"],
+            "required_fields": ["title"],
+            "optional_fields": [],
+            "stable_fields": [],
+        }
+        
+        if not envelope:
+            return constraints
+        
+        fields = envelope.get("fields", {})
+        
+        for field_name, field_data in fields.items():
+            if field_data.get("required", False):
+                constraints["required_fields"].append(field_name)
+            if field_data.get("stable", True):
+                constraints["stable_fields"].append(field_name)
+        
+        return constraints
+
+    def _apply_field_constraints(self, content_type: str, title: str, body_text: str, constraints: dict) -> dict:
+        """Apply field constraints when creating content."""
+        node_data = {
+            "title": title[:constraints.get("max_title_length", 255)],
+            "status": True,
+        }
+        
+        # Determine best format based on constraints
+        format_choice = constraints.get("allowed_formats", ["basic_html"])[0]
+        
+        # Build body field with proper format
+        node_data["body"] = {
+            "value": f"<p>{body_text}</p>",
+            "format": format_choice
+        }
+        
+        return node_data
 
 
 # ─────────────────────────────────────────────────────────────
@@ -339,7 +466,8 @@ class TestAgent(BaseAgent):
 
 
 class QAAgent(BaseAgent):
-    """Final quality assurance — accessibility, links, performance."""
+    """Final quality assurance — accessibility, links, performance.
+    Also generates Gap Report and writes cross-migration learnings."""
 
     def __init__(self):
         super().__init__("qa", "QAAgent")
@@ -347,13 +475,91 @@ class QAAgent(BaseAgent):
     async def run_qa(self) -> dict:
         await self.log("Running QA checks...")
         result = await asyncio.to_thread(self._run_qa_checks)
+        
+        # Generate Gap Report
+        gap_report = await asyncio.to_thread(self._generate_gap_report)
+        result["gap_report"] = gap_report
+        
         score = result.get("score", 0)
         await self.log_done(
             f"QA complete — {score}% quality score",
             detail=f"{result.get('issues', 0)} issues found"
         )
         self.memory.set_qa_report(result)
+        self.memory.set_gap_report(gap_report)
         return result
+
+    def _generate_gap_report(self) -> dict:
+        """Generate Gap Report with all compromises and fidelity scores."""
+        blueprint = self.memory.get_blueprint()
+        mapping_manifest = self.memory.get_mapping_manifest()
+        built_pages = self.memory.get_or_default("built_pages", [])
+        
+        gap_items = []
+        total_fidelity = 0
+        
+        # Process mapping manifest items
+        if mapping_manifest and "mappings" in mapping_manifest:
+            for mapping in mapping_manifest.get("mappings", []):
+                fidelity = mapping.get("fidelity_estimate", 0)
+                compromises = mapping.get("compromises", [])
+                
+                if fidelity < 0.9 or compromises:
+                    gap_items.append({
+                        "element_id": mapping.get("element_id"),
+                        "element_type": mapping.get("element_type"),
+                        "source_type": mapping.get("source_type"),
+                        "component_used": mapping.get("drupal_component"),
+                        "fidelity_score": fidelity,
+                        "compromises": compromises,
+                        "confidence": mapping.get("confidence", 0),
+                    })
+                    total_fidelity += fidelity
+        
+        # Calculate average fidelity
+        avg_fidelity = total_fidelity / len(gap_items) if gap_items else 1.0
+        
+        return {
+            "items": gap_items,
+            "total_items": len(gap_items),
+            "average_fidelity": avg_fidelity,
+            "built_pages": len(built_pages),
+            "requires_review": len([i for i in gap_items if i.get("fidelity_score", 0) < 0.7]) > 0,
+        }
+
+    async def write_learnings(self, blueprint: dict, built_pages: list, mapping_manifest: dict):
+        """
+        Write cross-migration learnings to global knowledge base.
+        Called after successful migration is approved.
+        """
+        await self.log("Writing cross-migration learnings...")
+        
+        # Record successful mappings
+        if mapping_manifest and "mappings" in mapping_manifest:
+            for mapping in mapping_manifest.get("mappings", []):
+                if mapping.get("confidence", 0) >= 0.8 and mapping.get("fidelity_estimate", 0) >= 0.8:
+                    tips = mapping.get("compromises", [])
+                    if not tips:
+                        tips = ["Direct mapping without compromises"]
+                    
+                    self.memory.add_successful_mapping(
+                        source_element=mapping.get("source_type", "unknown"),
+                        drupal_component=mapping.get("drupal_component", "unknown"),
+                        tips=tips
+                    )
+        
+        # Record failure patterns if any
+        gap_report = self.memory.get_gap_report()
+        if gap_report and gap_report.get("items"):
+            for item in gap_report.get("items", []):
+                if item.get("fidelity_score", 0) < 0.7:
+                    self.memory.add_failure_pattern(
+                        pattern=f"Low fidelity for {item.get('element_type')}: {item.get('source_type')}",
+                        root_cause=f"Component: {item.get('component_used')}",
+                        solution=f"Review mapping for {item.get('element_id')}"
+                    )
+        
+        await self.log_done("Learnings written to global knowledge base")
 
     def _run_qa_checks(self) -> dict:
         checks = []

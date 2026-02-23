@@ -1,96 +1,51 @@
 services:
 
   # ─────────────────────────────────────────
-  # Drupal 10 (Apache + PHP)
-  # http://localhost:5500
+  # DrupalMind Agents — Python agent runtime
+  # http://localhost:5511
+  # To rebuild ONLY this service:
+  #   docker-compose up -d --build drupalmind-agents
   # ─────────────────────────────────────────
-  drupal:
-    image: drupal:10-apache
-    container_name: drupal
+  drupalmind-agents:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+    container_name: drupalmind_agents
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
-      - "5500:80"
+      - "5511:8000"
+    environment:
+      # ── Target Drupal — set to any internal or external Drupal instance ──
+      DRUPAL_API_URL:  ${DRUPAL_API_URL:-http://drupal}
+      DRUPAL_API_USER: ${DRUPAL_API_USER:-apiuser}
+      DRUPAL_API_PASS: ${DRUPAL_API_PASS:-apiuser}
+      # ── Redis ──
+      REDIS_URL: redis://redis:6379
+      # ── LLM Provider — options: anthropic | openai | ollama ──
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      # Anthropic
+      ANTHROPIC_API_KEY:  ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      # OpenAI
+      OPENAI_API_KEY:  ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL:    ${OPENAI_MODEL:-gpt-4o}
+      # Ollama (only used when LLM_PROVIDER=ollama)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL:    ${OLLAMA_MODEL:-llama3}
     depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DRUPAL_DB_HOST: db
-      DRUPAL_DB_PORT: 3306
-      DRUPAL_DB_NAME: drupal
-      DRUPAL_DB_USER: drupal
-      DRUPAL_DB_PASSWORD: drupalpass123
+      - redis
     volumes:
-      - ./mnt/drupal_modules:/var/www/html/modules
-      - ./mnt/drupal_profiles:/var/www/html/profiles
-      - ./mnt/drupal_themes:/var/www/html/themes
-      - ./mnt/drupal_sites:/var/www/html/sites
-    networks:
-      - drupal_net
-
-  # ─────────────────────────────────────────
-  # MySQL 8
-  # ─────────────────────────────────────────
-  db:
-    image: mysql:8.0
-    container_name: drupal_db
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: rootsecret123
-      MYSQL_DATABASE: drupal
-      MYSQL_USER: drupal
-      MYSQL_PASSWORD: drupalpass123
-    volumes:
-      - ./mnt/mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootsecret123"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - drupal_net
-
-  # ─────────────────────────────────────────
-  # phpMyAdmin
-  # http://localhost:5501
-  # ─────────────────────────────────────────
-  phpmyadmin:
-    image: phpmyadmin:latest
-    container_name: drupal_phpmyadmin
-    restart: unless-stopped
-    ports:
-      - "5501:80"
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PMA_HOST: db
-      PMA_PORT: 3306
-      PMA_USER: drupal
-      PMA_PASSWORD: drupalpass123
-      UPLOAD_LIMIT: 256M
-    networks:
-      - drupal_net
-
-  # ─────────────────────────────────────────
-  # Mailpit — email catcher
-  # UI:   http://localhost:5502
-  # SMTP: localhost:5503
-  # ─────────────────────────────────────────
-  mailpit:
-    image: axllent/mailpit:latest
-    container_name: drupal_mailpit
-    restart: unless-stopped
-    ports:
-      - "5502:8025"
-      - "5503:1025"
+      - ./agents:/app
     networks:
       - drupal_net
 
   # ─────────────────────────────────────────
   # DrupalMind UI — Agent Control Panel
   # http://localhost:5510
-  # To rebuild ONLY this service (preserving db/drupal):
+  # To rebuild ONLY this service:
   #   docker-compose up -d --build drupalmind-ui
   # ─────────────────────────────────────────
   drupalmind-ui:
@@ -102,12 +57,13 @@ services:
     ports:
       - "5510:80"
     environment:
-      DRUPAL_API_URL: http://drupal
-      DRUPAL_API_USER: apiuser
-      DRUPAL_API_PASS: apiuser
-      AGENTS_API_URL: http://drupalmind_agents:8000
+      # ── Target Drupal — must match what the agents are pointed at ──
+      DRUPAL_API_URL:  ${DRUPAL_API_URL:-http://drupal}
+      DRUPAL_API_USER: ${DRUPAL_API_USER:-apiuser}
+      DRUPAL_API_PASS: ${DRUPAL_API_PASS:-apiuser}
+      AGENTS_API_URL:  http://drupalmind_agents:8000
     depends_on:
-      - drupal
+      - drupalmind-agents
     networks:
       - drupal_net
 
@@ -126,63 +82,113 @@ services:
     networks:
       - drupal_net
 
-  # ─────────────────────────────────────────
-  # DrupalMind Agents — Python agent runtime
-  # To rebuild ONLY this service (preserving db/drupal):
-  #   docker-compose up -d --build drupalmind-agents
-  # ─────────────────────────────────────────
-  drupalmind-agents:
-    build:
-      context: ./agents
-      dockerfile: Dockerfile
-    container_name: drupalmind_agents
+  # ═════════════════════════════════════════
+  # LOCAL DRUPAL STACK  (optional profile)
+  # Only needed when running a local Drupal
+  # instance for development or testing.
+  #
+  # Start with:
+  #   docker-compose --profile local-drupal up -d
+  # ═════════════════════════════════════════
+
+  drupal:
+    image: drupal:10-apache
+    container_name: drupal
     restart: unless-stopped
-    env_file:
-      - .env
+    profiles:
+      - local-drupal
     ports:
-      - "5511:8000"
-    environment:
-      DRUPAL_API_URL: http://drupal
-      DRUPAL_API_USER: apiuser
-      DRUPAL_API_PASS: apiuser
-      REDIS_URL: redis://redis:6379
-      # LLM Provider Configuration
-      # Options: anthropic, openai, ollama
-      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
-      # Anthropic Configuration
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
-      # OpenAI Configuration
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      # Ollama Configuration (when LLM_PROVIDER=ollama)
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      - "5500:80"
     depends_on:
-      - drupal
-      - redis
+      db:
+        condition: service_healthy
+    environment:
+      DRUPAL_DB_HOST:     db
+      DRUPAL_DB_PORT:     3306
+      DRUPAL_DB_NAME:     drupal
+      DRUPAL_DB_USER:     drupal
+      DRUPAL_DB_PASSWORD: drupalpass123
     volumes:
-      - ./agents:/app
+      - ./mnt/drupal_modules:/var/www/html/modules
+      - ./mnt/drupal_profiles:/var/www/html/profiles
+      - ./mnt/drupal_themes:/var/www/html/themes
+      - ./mnt/drupal_sites:/var/www/html/sites
+    networks:
+      - drupal_net
+
+  db:
+    image: mysql:8.0
+    container_name: drupal_db
+    restart: unless-stopped
+    profiles:
+      - local-drupal
+    environment:
+      MYSQL_ROOT_PASSWORD: rootsecret123
+      MYSQL_DATABASE:      drupal
+      MYSQL_USER:          drupal
+      MYSQL_PASSWORD:      drupalpass123
+    volumes:
+      - ./mnt/mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootsecret123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - drupal_net
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: drupal_phpmyadmin
+    restart: unless-stopped
+    profiles:
+      - local-drupal
+    ports:
+      - "5501:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PMA_HOST:     db
+      PMA_PORT:     3306
+      PMA_USER:     drupal
+      PMA_PASSWORD: drupalpass123
+      UPLOAD_LIMIT: 256M
+    networks:
+      - drupal_net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: drupal_mailpit
+    restart: unless-stopped
+    profiles:
+      - local-drupal
+    ports:
+      - "5502:8025"
+      - "5503:1025"
     networks:
       - drupal_net
 
   # ─────────────────────────────────────────
   # Ollama — Local LLM (optional)
   # Only needed if LLM_PROVIDER=ollama
+  #
+  # Start with:
+  #   docker-compose --profile ollama up -d
   # ─────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: drupal_ollama
     restart: unless-stopped
+    profiles:
+      - ollama
     ports:
       - "11434:11434"
     volumes:
       - ./mnt/ollama_data:/root/.ollama
     networks:
       - drupal_net
-    profiles:
-      - ollama
 
 networks:
   drupal_net:

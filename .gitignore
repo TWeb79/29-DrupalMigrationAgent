@@ -1,43 +1,142 @@
-# Secrets
+# =============================================
+# DrupalMind - Git Ignore
+# =============================================
+
+# ---------------------------------------------
+# Secrets & Configuration
+# ---------------------------------------------
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+*.cer
 
-# Docker data volumes (persistent local data)
+# ---------------------------------------------
+# Docker & Container Data
+# ---------------------------------------------
 mnt/
+.docker/
+docker-compose.override.yml
 
+# ---------------------------------------------
 # Python
+# ---------------------------------------------
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 .venv/
 venv/
-*.egg-info/
-dist/
-build/
-.pytest_cache/
+ENV/
+env/
+.envs/
+*.venv
 
-# Node
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ---------------------------------------------
+# Node.js
+# ---------------------------------------------
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
 .next/
 out/
 .nuxt/
 dist/
+.cache/
 
-# Drupal generated
-/drupal/sites/default/files/
-/drupal/sites/default/settings.php
-/drupal/sites/default/services.yml
+# ---------------------------------------------
+# React / Frontend Build
+# ---------------------------------------------
+ui/build/
+ui/.env.local
+ui/.env.development.local
+ui/.env.test.local
+ui/.env.production.local
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# ---------------------------------------------
+# Drupal Generated
+# ---------------------------------------------
+drupal/sites/default/files/
+drupal/sites/default/settings.php
+drupal/sites/default/services.yml
+drupal/sites/default/
 
-# IDE
+# ---------------------------------------------
+# Logs
+# ---------------------------------------------
+*.log
+logs/
+*.log.*
+debug/
+trace/
+
+# ---------------------------------------------
+# IDE & Editor
+# ---------------------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*.sublime-*
 
-# Logs
-*.log
-logs/
+# ---------------------------------------------
+# OS
+# ---------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------------------------------------------
+# Temporary Files
+# ---------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.orig
+*.pyc.*
+*.bak.*
+*.swp
+.cache/
+tmp/
+temp/
+
+# ---------------------------------------------
+# Misc
+# ---------------------------------------------
+*.sqlite
+*.sqlite3
+.redis_data/

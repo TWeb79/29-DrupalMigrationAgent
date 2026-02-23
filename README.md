@@ -1,4 +1,4 @@
-# 🧠 DrupalMind — Agentic AI Website Builder (In Development)
+# 🧠 DrupalMind — Agentic AI Website Builder
 
 <p align="center">
   <img src="https://img.shields.io/badge/Drupal-10+-0678BE?style=for-the-badge&logo=drupal" alt="Drupal 10">
@@ -9,7 +9,7 @@
 
 > Paste a URL. Watch AI agents build it in Drupal.
 
-DrupalMind is a multi-agent AI system that takes a source website URL or natural language description and autonomously builds a matching Drupal 10 site — structure, content, theme, menus, and all.
+DrupalMind is a multi-agent AI system (v2) that takes a source website URL or natural language description and autonomously builds a matching Drupal 10 site — structure, content, theme, menus, and all.
 
 ---
 
@@ -23,6 +23,7 @@ DrupalMind is a multi-agent AI system that takes a source website URL or natural
 - [Environment Variables](#-environment-variables)
 - [Services](#-services)
 - [Project Structure](#-project-structure)
+- [CLI Usage](#-cli-usage)
 - [Development](#-development)
 - [Documentation](#-documentation)
 - [License](#-license)
@@ -38,6 +39,18 @@ DrupalMind is a multi-agent AI system that takes a source website URL or natural
 - **Docker Ready**: Complete containerized deployment
 - **Custom Endpoints**: Support for self-hosted LLM servers
 
+### v2 New Features
+
+| Feature | Description |
+|---------|-------------|
+| **Visual Feedback** | Playwright renders source and Drupal side-by-side with perceptual hash diff |
+| **Payload Validator** | Validates JSON:API payloads before sending to Drupal |
+| **ProbeAgent** | Empirical component discovery - tests every Drupal component via real API calls |
+| **MappingAgent** | Confidence-scored mapping with fidelity estimates |
+| **Refinement Loops** | Micro-loop (5 iterations) and Meso-loop for component refinement |
+| **Gap Report** | Structured compromise list with before/after screenshots |
+| **Cross-Migration Learning** | Global knowledge base accumulates successful patterns |
+
 ---
 
 ## 🏗️ Architecture
@@ -45,27 +58,32 @@ DrupalMind is a multi-agent AI system that takes a source website URL or natural
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         USER INTERFACE                           │
-│              http://localhost:5510 (React + Nginx)               │
+│              http://localhost:5510 (React + Nginx)              │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATOR AGENT                            │
-│                    http://localhost:5511 (FastAPI)               │
+│                    ORCHESTRATOR AGENT                           │
+│                    http://localhost:5511 (FastAPI)              │
 │  ┌──────────────┬──────────────┬──────────────┬───────────────┐ │
-│  │   Analyzer   │    Train     │    Build    │    Theme     │ │
-│  │    Agent     │    Agent     │    Agent    │    Agent     │ │
-│  └──────────────┴──────────────┴──────────────┴───────────────┘ │
+│  │   Analyzer   │    Train     │   Mapping    │    Build      │ │
+│  │    Agent     │    Agent     │    Agent     │    Agent      │ │
+│  ├──────────────┼──────────────┼──────────────┼───────────────┤ │
+│  │   Probe      │    Theme     │   Content    │   VisualDiff  │ │
+│  │    Agent     │    Agent     │    Agent     │    Agent      │ │
+│  ├──────────────┼──────────────┴──────────────┼───────────────┤ │
+│  │     Test     │         QAAgent            │               │ │
+│  └──────────────┴────────────────────────────┴───────────────┘ │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      DRUPAL 10 + JSON:API                       │
-│                      http://localhost:5500                       │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐   │
-│  │   MySQL │  │  Redis  │  │  phpMy  │  │     Mailpit     │   │
-│  │   8.0   │  │    7    │  │  Admin  │  │  (Email Test)  │   │
-│  └─────────┘  └─────────┘  └─────────┘  └─────────────────┘   │
+│                      http://localhost:5500                      │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐     │
+│  │   MySQL │  │  Redis  │  │  phpMy  │  │     Mailpit     │     │
+│  │   8.0   │  │    7    │  │  Admin  │  │  (Email Test)  │     │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────────┘     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,13 +97,16 @@ DrupalMind is a multi-agent AI system that takes a source website URL or natural
          │
     ┌────┴────────────────────────────────────┐
     │              AGENTS                       │
-    │  🔍 AnalyzerAgent  — scrape source      │
-    │  📚 TrainAgent     — learn Drupal       │
-    │  🏗️ BuildAgent    — build pages         │
-    │  🎨 ThemeAgent    — match design        │
-    │  📝 ContentAgent  — migrate text         │
+    │  🔍 AnalyzerAgent  — scrape source       │
+    │  📡 ProbeAgent    — probe Drupal         │
+    │  📚 TrainAgent    — learn Drupal         │
+    │  🗺️  MappingAgent — confidence scoring   │
+    │  🏗️ BuildAgent   — build pages          │
+    │  🎨 ThemeAgent   — match design          │
+    │  📝 ContentAgent — migrate text          │
+    │  👁️ VisualDiffAgent — compare renders   │
     │  🧪 TestAgent    — compare result       │
-    │  ✅ QAAgent      — final checks        │
+    │  ✅ QAAgent      — final checks          │
     └─────────────────────────────────────────┘
          │
          ▼
@@ -124,6 +145,12 @@ cp .env_example .env
 ### 3. Start Infrastructure (Drupal, Database, Redis)
 
 ```bash
+docker compose --profile local-drupal up -d
+```
+
+Or start only the required services:
+
+```bash
 docker compose up -d drupal db phpmyadmin mailpit redis
 ```
 
@@ -142,11 +169,7 @@ Open **http://localhost:5500** and run the installer:
 ### 5. Run Setup Script
 
 ```bash
-# Windows
-docker cp scripts/setup-drupal.sh drupal:/tmp/setup-drupal.sh
-docker exec -it drupal bash /tmp/setup-drupal.sh
-
-# macOS / Linux
+# Copy script to container and run
 docker cp scripts/setup-drupal.sh drupal:/tmp/setup-drupal.sh
 docker exec -it drupal bash /tmp/setup-drupal.sh
 ```
@@ -192,7 +215,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 ```bash
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3  # or mistral, codellama, etc.
+OLLAMA_MODEL=llama3  # or deepseek-r1, mistral, etc.
 ```
 
 To start Ollama with Docker:
@@ -205,6 +228,8 @@ docker compose --profile ollama up -d ollama
 
 ## 📝 Environment Variables
 
+### LLM Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LLM_PROVIDER` | LLM provider: `anthropic`, `openai`, or `ollama` | `anthropic` |
@@ -215,10 +240,43 @@ docker compose --profile ollama up -d ollama
 | `OPENAI_MODEL` | OpenAI model name | `gpt-4o` |
 | `OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Ollama model name | `llama3` |
+| `AGENT_MODEL` | Model name for agents | varies by provider |
+
+### Drupal Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `DRUPAL_API_URL` | Drupal site URL | `http://drupal` |
 | `DRUPAL_API_USER` | Drupal API username | `apiuser` |
 | `DRUPAL_API_PASS` | Drupal API password | `apiuser` |
+
+### Agent Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379` |
+| `AGENT_MAX_RETRIES` | Max retries for agent actions | `3` |
+| `AGENT_LOG_LEVEL` | Log level: `debug`, `info`, `warning` | `info` |
+
+### v2 Quality Thresholds
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SIMILARITY_THRESHOLD` | Visual diff threshold | `0.85` |
+| `MIN_SIMILARITY_THRESHOLD` | Minimum acceptable similarity | `0.30` |
+| `MAX_MICRO_ITERATIONS` | Max iterations per component | `5` |
+| `MAX_MESO_ITERATIONS` | Max iterations per page | `3` |
+| `MAX_BUILD_RETRIES` | Max build retry attempts | `2` |
+
+### v2 Feature Flags
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENABLE_VISUAL_DIFF` | Enable visual diff comparisons | `true` |
+| `ENABLE_MISSING_PIECE_DETECTION` | Enable gap detection | `true` |
+| `ENABLE_GAP_REPORT` | Generate gap reports | `true` |
+| `ENABLE_HUMAN_REVIEW` | Enable human review gate | `true` |
+| `DEBUG_MODE` | Enable debug logging | `false` |
 
 ---
 
@@ -244,33 +302,78 @@ docker compose --profile ollama up -d ollama
 ```
 drupal-mind/
 ├── agents/                    # AI Agent runtime
-│   ├── base_agent.py         # Base agent with LLM support
-│   ├── orchestrator.py       # Main orchestration agent
-│   ├── analyzer.py           # Source site analyzer
-│   ├── build_agent.py        # Drupal builder
-│   ├── train_agent.py        # Drupal knowledge trainer
-│   ├── agents.py             # Theme, Content, Test, QA agents
-│   ├── memory.py             # Redis-backed memory
-│   ├── drupal_client.py      # Drupal JSON:API client
-│   ├── main.py               # FastAPI server
-│   ├── requirements.txt      # Python dependencies
+│   ├── base_agent.py          # Base agent with LLM support
+│   ├── orchestrator.py        # Main orchestration agent
+│   ├── analyzer.py            # Source site analyzer
+│   ├── probe_agent.py         # Drupal component prober
+│   ├── mapping_agent.py       # Confidence-scored mapping
+│   ├── build_agent.py         # Drupal builder
+│   ├── train_agent.py         # Drupal knowledge trainer
+│   ├── theme_agent.py         # Theme application
+│   ├── content_agent.py       # Content migration
+│   ├── test_agent.py          # Comparison testing
+│   ├── qa_agent.py            # Quality assurance
+│   ├── visual_diff_agent.py   # Visual comparison
+│   ├── agents.py              # Agent utility functions
+│   ├── memory.py              # Redis-backed memory
+│   ├── drupal_client.py       # Drupal JSON:API client
+│   ├── config.py              # Configuration loader
+│   ├── main.py                # FastAPI server
+│   ├── requirements.txt       # Python dependencies
 │   └── Dockerfile            # Agent container image
 │
-├── ui/                       # React UI
-│   ├── index.html            # Entry HTML
-│   ├── DrupalMindUI.jsx     # Main React component
-│   ├── nginx.conf            # Nginx configuration
-│   └── Dockerfile            # UI container image
+├── ui/                        # React UI (static files)
+│   ├── index.html             # Entry HTML
+│   ├── DrupalMindUI.jsx      # Main React component
+│   ├── nginx.conf             # Nginx configuration
+│   ├── package.json          # Node dependencies
+│   └── Dockerfile             # UI container image
 │
-├── scripts/                  # Setup scripts
-│   ├── setup-drupal.sh      # Drupal configuration
-│   └── setup.ps1            # Windows setup
+├── scripts/                   # Setup scripts
+│   ├── setup-drupal.sh       # Drupal configuration
+│   └── setup.ps1             # Windows setup
 │
-├── docker-compose.yml        # Main compose file
+├── plans/                     # Planning documents
+│   └── v2_changes_summary.md # v2 feature summary
+│
+├── docker-compose.yml         # Main compose file
+├── docker-compose_freshinstall.yml  # Fresh installation template
+├── run_migration.py          # CLI migration tool
 ├── README.md                 # This file
 ├── CONCEPT.md               # Detailed architecture
+├── Version2.md              # v2 feature details
 ├── DrupalInstallation.md    # Installation guide
-└── .env.example             # Environment template
+├── DrupalConnection.md      # Connection details
+├── .env_example            # Environment template
+└── .gitignore              # Git ignore rules
+```
+
+---
+
+## 💻 CLI Usage
+
+The CLI tool allows running migrations from the command line with detailed debug output.
+
+### Basic Usage
+
+```bash
+# Run migration for a URL
+python run_migration.py http://example.com/
+
+# With verbose output
+python run_migration.py http://example.com/ --verbose
+```
+
+### Requirements
+
+```bash
+# Install CLI dependencies
+pip install -r requirements_cli.txt
+
+# Set environment variables
+set OPENAI_API_KEY=your-api-key
+# or
+set ANTHROPIC_API_KEY=your-api-key
 ```
 
 ---
@@ -294,6 +397,9 @@ docker compose build drupalmind-ui
 # Start all services
 docker compose up -d
 
+# Start with local Drupal
+docker compose --profile local-drupal up -d
+
 # Start with Ollama
 docker compose --profile ollama up -d
 
@@ -313,6 +419,7 @@ docker compose logs -f drupalmind-ui
 | `/memory` | GET | List memory keys |
 | `/memory/{key}` | GET | Get memory value |
 | `/memory/reset` | DELETE | Reset memory |
+| `/ws` | WebSocket | Real-time progress stream |
 
 ---
 
@@ -322,6 +429,7 @@ docker compose logs -f drupalmind-ui
 |----------|-------------|
 | [DrupalInstallation.md](DrupalInstallation.md) | Step-by-step installation guide |
 | [CONCEPT.md](CONCEPT.md) | Detailed agent architecture |
+| [Version2.md](Version2.md) | v2 new features detailed |
 
 ---
 

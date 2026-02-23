@@ -7,6 +7,7 @@ import json
 import re
 import asyncio
 import logging
+import os
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -34,6 +35,12 @@ class AnalyzerAgent(BaseAgent):
         logger.info(f"║ Mode: {mode} | Source: {source[:100]}...")
         logger.info(f"══════════════════════════════════════════════════════════════")
         await self.log("Starting analysis...", detail=f"Source: {source}")
+        
+        # Log analysis start with extended event
+        await self.log_extended("analysis_start", {
+            "source": source[:200],
+            "mode": mode,
+        })
 
         if mode == "description":
             logger.info("Using LLM to analyze description...")
@@ -42,13 +49,156 @@ class AnalyzerAgent(BaseAgent):
             logger.info("Scraping URL for analysis...")
             blueprint = await asyncio.to_thread(self._analyze_url, source)
 
+        # Log extracted content elements in detail
+        pages = blueprint.get("pages", [])
+        sections = blueprint.get("sections", [])
+        navigation = blueprint.get("navigation", [])
+        design_tokens = blueprint.get("design_tokens", {})
+        
+        await self.log_data("content_elements", {
+            "pages": [{"title": p.get("title"), "path": p.get("path"), "content_type": p.get("content_type")} for p in pages],
+            "sections": [{"type": s.get("type"), "heading": s.get("heading", "")[:50], "has_images": s.get("has_images"), "has_links": s.get("has_links")} for s in sections],
+            "navigation": [{"title": n.get("title"), "path": n.get("path")} for n in navigation[:10]],
+            "design_tokens": {
+                "colors": design_tokens.get("colors", [])[:5],
+                "fonts": design_tokens.get("fonts", [])[:3],
+                "primary_color": design_tokens.get("primary_color"),
+            },
+            "counts": {
+                "total_pages": len(pages),
+                "total_sections": len(sections),
+                "nav_items": len(navigation),
+                "colors_found": len(design_tokens.get("colors", [])),
+                "fonts_found": len(design_tokens.get("fonts", [])),
+            }
+        }, summary=f"Found {len(pages)} pages, {len(sections)} sections, {len(navigation)} nav items")
+        
+        # Log section breakdown by type
+        section_types = {}
+        for s in sections:
+            t = s.get("type", "unknown")
+            section_types[t] = section_types.get(t, 0) + 1
+        
+        await self.log_extended("sections_breakdown", {
+            "section_types": section_types,
+            "total": len(sections),
+        })
+        
+        # Log each section in detail
+        for i, section in enumerate(sections[:10]):
+            await self.log_data("section", {
+                "index": i,
+                "type": section.get("type"),
+                "heading": section.get("heading", "")[:100],
+                "text_preview": section.get("text_preview", "")[:150],
+                "has_images": section.get("has_images", False),
+                "has_links": section.get("has_links", False),
+                "has_form": section.get("has_form", False),
+                "drupal_component": section.get("drupal_component", ""),
+            }, summary=f"Section {i}: {section.get('type')} - {section.get('heading', 'No heading')[:30]}")
+        
+        # Capture reference screenshots for key pages
+        if blueprint.get("source_url"):
+            await self.log("Capturing reference screenshots...")
+            screenshots = await self._capture_reference_screenshots(blueprint)
+            blueprint["reference_screenshots"] = screenshots
+            
+            # Log screenshot results
+            await self.log_extended("screenshots_captured", {
+                "home_captured": screenshots.get("home") is not None,
+                "pages_captured": len(screenshots.get("pages", [])),
+            })
+            
+            # Log each screenshot as an image event
+            if screenshots.get("home"):
+                await self.log_image(
+                    screenshots["home"], 
+                    "Homepage reference screenshot", 
+                    100
+                )
+
         self.memory.set_blueprint(blueprint)
+        
+        # Log final blueprint summary
+        await self.log_extended("analysis_complete", {
+            "source_url": blueprint.get("source_url"),
+            "title": blueprint.get("title"),
+            "pages_count": len(pages),
+            "sections_count": len(sections),
+            "content_types_needed": blueprint.get("content_types_needed", []),
+            "has_seo": bool(blueprint.get("seo")),
+        })
+        
+        # Log metrics
+        await self.log_metric("pages_found", len(pages), "", "analysis")
+        await self.log_metric("sections_found", len(sections), "", "analysis")
+        await self.log_metric("nav_items_found", len(navigation), "", "analysis")
+        
         await self.log_done(
-            f"Site Blueprint ready — {len(blueprint.get('pages', []))} pages, "
-            f"{len(blueprint.get('sections', []))} sections detected",
+            f"Site Blueprint ready — {len(pages)} pages, "
+            f"{len(sections)} sections detected",
             detail=f"Blueprint saved to memory"
         )
         return blueprint
+
+    # ── Screenshot capture (v2) ─────────────────────────────────
+
+    async def _capture_reference_screenshots(self, blueprint: dict) -> dict:
+        """Capture reference screenshots of key pages for VisualDiffAgent."""
+        screenshots = {"home": None, "pages": []}
+        source_url = blueprint.get("source_url", "")
+        
+        if not source_url:
+            return screenshots
+        
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            logger.warning("Playwright not installed, skipping screenshots")
+            self.memory.set("screenshot_error", "Playwright not installed")
+            return screenshots
+        
+        try:
+            import base64
+            
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(viewport={"width": 1280, "height": 800})
+                
+                # Capture homepage
+                try:
+                    page.goto(source_url, wait_until="domcontentloaded", timeout=10000)
+                    
+                    # Get screenshot as base64
+                    home_screenshot_b64 = page.screenshot(full_page=False, type="png")
+                    home_screenshot_base64 = base64.b64encode(home_screenshot_b64).decode('utf-8')
+                    screenshots["home"] = f"data:image/png;base64,{home_screenshot_base64}"
+                    logger.info(f"Captured homepage screenshot as base64 ({len(home_screenshot_base64)} chars)")
+                except Exception as e:
+                    logger.warning(f"Failed to capture homepage screenshot: {e}")
+                
+                # Capture key pages
+                for page_info in blueprint.get("pages", [])[:5]:
+                    page_url = page_info.get("url")
+                    if page_url and page_url != source_url:
+                        try:
+                            page.goto(page_url, wait_until="domcontentloaded", timeout=10000)
+                            
+                            page_b64 = page.screenshot(full_page=False, type="png")
+                            page_base64 = base64.b64encode(page_b64).decode('utf-8')
+                            
+                            screenshots["pages"].append({
+                                "path": page_info.get("path"),
+                                "screenshot": f"data:image/png;base64,{page_base64}"
+                            })
+                        except Exception as e:
+                            logger.warning(f"Failed to capture screenshot for {page_url}: {e}")
+                
+                browser.close()
+        except Exception as e:
+            logger.warning(f"Screenshot capture failed: {e}")
+        
+        return screenshots
 
     # ── URL analysis ──────────────────────────────────────────
 

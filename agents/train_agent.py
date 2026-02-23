@@ -1,54 +1,157 @@
 """
 DrupalMind — TrainAgent
-Discovers all available Drupal components, tests their parameters,
-and maintains the Component Knowledge Base in shared memory.
+Loads Drupal knowledge for other agents.
+v2: Reads ready-made envelopes from ProbeAgent instead of self-discovering.
 """
 import json
 import asyncio
 from base_agent import BaseAgent
+from memory import memory as shared_memory
 
 
 SYSTEM_PROMPT = """You are the TrainAgent for DrupalMind. Your job is to:
-1. Discover all available Drupal content types, fields, and components via the API
-2. Document each component with its capabilities, fields, and example usage
-3. Store this knowledge in shared memory for other agents to use
+1. Read capability envelopes from ProbeAgent (key: "capability_envelopes/*")
+2. Format this knowledge for downstream agents
+3. Make the component knowledge easily accessible via tools
 
-Be systematic. For each content type, document:
-- Machine name
-- Available fields and their types
-- What kind of content it's good for
-- Example API payload to create a node
-
-Use the available tools to explore the Drupal API and build comprehensive documentation.
-Store results under memory key "components/{content_type_name}".
+The capability envelopes contain verified information about what each component
+can actually do - discovered through empirical testing by ProbeAgent.
 """
 
 
 class TrainAgent(BaseAgent):
+    """Loads Drupal knowledge from ProbeAgent envelopes."""
+    
     def __init__(self):
         super().__init__("train", "TrainAgent")
 
     async def train(self, specific_component: str = None) -> dict:
         """
-        Run training. If specific_component is given, only train that one.
-        Otherwise do a full discovery pass.
+        Run training. Reads envelopes from ProbeAgent instead of self-discovery.
         """
         if specific_component:
             await self.log(f"Training on component: {specific_component}")
             result = await asyncio.to_thread(self._train_specific, specific_component)
         else:
-            await self.log("Starting full component discovery...")
-            result = await asyncio.to_thread(self._train_all)
+            await self.log("Reading capability envelopes from ProbeAgent...")
+            result = await asyncio.to_thread(self._load_from_probe)
 
         components = self.memory.list_components()
         await self.log_done(
-            f"Training complete — {len(components)} components documented",
+            f"Training complete — {len(components)} components loaded from ProbeAgent",
             detail=f"Components: {', '.join(components[:8])}"
         )
         return result
 
-    def _train_all(self) -> dict:
-        """Discover all Drupal components and document them."""
+    def _load_from_probe(self) -> dict:
+        """
+        Load component knowledge from ProbeAgent's capability envelopes.
+        This is the v2 approach - use empirically tested envelopes.
+        """
+        knowledge = {}
+        
+        # Get all capability envelopes from ProbeAgent
+        envelope_names = shared_memory.list_capability_envelopes()
+        
+        if not envelope_names:
+            # No envelopes yet - fall back to direct discovery
+            return self._fallback_discovery()
+        
+        # Transform envelopes into component knowledge
+        for env_name in envelope_names:
+            envelope = shared_memory.get_capability_envelope(env_name)
+            if not envelope:
+                continue
+                
+            # Convert envelope to component format for backward compatibility
+            component_doc = self._envelope_to_component(envelope)
+            
+            # Store in both locations
+            shared_memory.set_component(env_name, component_doc)
+            knowledge[env_name] = component_doc
+        
+        # Also load menus and taxonomy from envelopes if available
+        if "menus" in envelope_names:
+            menus_envelope = shared_memory.get_capability_envelope("menus")
+            if menus_envelope:
+                shared_memory.set_component("menus", {
+                    "type": "menus",
+                    "description": "Drupal navigation menus",
+                    "available": menus_envelope.get("available", []),
+                    "usage": "Use menu_link_content API to add items",
+                })
+        
+        # Store training summary
+        summary = {
+            "source": "probe_agent",
+            "envelope_count": len(envelope_names),
+            "content_types": [e for e in envelope_names if e not in ["menus", "blocks"]],
+            "trained_at": "v2_from_envelopes",
+        }
+        self.memory.set("training_summary", summary)
+        
+        return knowledge
+
+    def _envelope_to_component(self, envelope: dict) -> dict:
+        """Convert a capability envelope to component knowledge format."""
+        machine_name = envelope.get("machine_name", envelope.get("type", "unknown"))
+        
+        # Extract field information from envelope
+        fields = envelope.get("fields", {})
+        field_list = []
+        for fname, fdata in fields.items():
+            field_list.append({
+                "field_name": fname,
+                "field_type": fdata.get("field_type", "unknown"),
+                "required": fdata.get("required", False),
+                "stable": fdata.get("stable", True),
+            })
+        
+        return {
+            "type": envelope.get("type", "node"),
+            "machine_name": machine_name,
+            "label": envelope.get("label", machine_name),
+            "description": envelope.get("description", ""),
+            "fields": field_list,
+            "stable": envelope.get("stable", True),
+            "usage": self._generate_usage(machine_name, field_list),
+            "api_create_endpoint": f"jsonapi/node/{machine_name}",
+            "api_payload_example": self._build_example_payload(machine_name, field_list),
+            "capability_envelope": envelope,  # Keep original envelope for reference
+        }
+
+    def _generate_usage(self, machine_name: str, fields: list) -> str:
+        """Generate usage description from fields."""
+        field_names = [f["field_name"] for f in fields]
+        descriptions = {
+            "article": "Use for blog posts, news items, team bios. Has title, body, image, tags fields.",
+            "page": "Use for static pages like About, Services, Contact. Has title and body fields.",
+        }
+        desc = descriptions.get(machine_name, f"Content type '{machine_name}'.")
+        if field_names:
+            desc += f" Available fields: {', '.join(field_names[:8])}."
+        return desc
+
+    def _build_example_payload(self, machine_name: str, fields: list) -> dict:
+        """Build example payload from field list."""
+        attrs = {"title": f"Example {machine_name.title()}", "status": True}
+        for field in fields:
+            fname = field["field_name"]
+            ftype = field.get("field_type", "")
+            if fname == "body" or ftype == "text_with_summary":
+                attrs["body"] = {"value": "<p>Example content</p>", "format": "basic_html"}
+        return {
+            "data": {
+                "type": f"node--{machine_name}",
+                "attributes": attrs,
+            }
+        }
+
+    def _fallback_discovery(self) -> dict:
+        """
+        Fallback to direct discovery if no envelopes available.
+        This is the original v1 behavior.
+        """
         # Step 1: Get content types
         content_types = []
         try:
@@ -63,66 +166,41 @@ class TrainAgent(BaseAgent):
             self.memory.set_component(machine_name, doc)
             knowledge[machine_name] = doc
 
-        # Step 2: Document menus
+        # Document menus
         try:
             menus = self.drupal.get_menus()
             self.memory.set_component("menus", {
                 "type": "menus",
                 "description": "Drupal navigation menus",
                 "available": menus,
-                "usage": "Use menu_link_content API to add items. Menu machine names: " + ", ".join(m["machine_name"] for m in menus),
-                "api_example": {
-                    "endpoint": "jsonapi/menu_link_content/menu_link_content",
-                    "payload": {
-                        "data": {
-                            "type": "menu_link_content--menu_link_content",
-                            "attributes": {
-                                "title": "My Page",
-                                "link": {"uri": "internal:/my-page"},
-                                "menu_name": "main",
-                                "weight": 0,
-                                "enabled": True,
-                            }
-                        }
-                    }
-                }
             })
         except Exception:
             pass
 
-        # Step 3: Document taxonomy
+        # Document taxonomy
         self.memory.set_component("taxonomy_tags", {
             "type": "taxonomy_term",
             "vocabulary": "tags",
-            "description": "Tags vocabulary for categorizing articles",
-            "usage": "Create terms then reference them in article nodes via field_tags relationship",
-            "api_example": {
-                "endpoint": "jsonapi/taxonomy_term/tags",
-                "payload": {
-                    "data": {
-                        "type": "taxonomy_term--tags",
-                        "attributes": {"name": "My Tag"}
-                    }
-                }
-            }
+            "description": "Tags vocabulary",
         })
 
-        # Step 4: Store capability summary
         summary = {
             "content_types": [ct["machine_name"] for ct in content_types],
-            "menus": True,
-            "taxonomy": True,
-            "media": True,
-            "blocks": True,
-            "trained_at": "initial",
+            "source": "fallback_discovery",
+            "trained_at": "v1_fallback",
         }
         self.memory.set("training_summary", summary)
         return knowledge
 
     def _train_specific(self, component: str) -> dict:
-        """Document a specific component."""
+        """Train on a specific component - check envelopes first, then fallback."""
+        # Try envelopes first
+        envelope = shared_memory.get_capability_envelope(component)
+        if envelope:
+            return self._envelope_to_component(envelope)
+        
+        # Fall back to direct discovery
         try:
-            # Try to find it as a content type
             content_types = self.drupal.get_content_types()
             for ct in content_types:
                 if ct["machine_name"] == component or ct["label"].lower() == component.lower():
@@ -132,19 +210,20 @@ class TrainAgent(BaseAgent):
         except Exception:
             pass
 
-        # Fall back to LLM-based documentation
+        # Final fallback to LLM
         return self._document_via_llm(component)
 
     def _document_content_type(self, ct: dict) -> dict:
+        """Document a content type (fallback method)."""
         machine_name = ct["machine_name"]
-
+        
         # Get fields
         fields = []
         try:
             fields = self.drupal.get_fields_for_type(machine_name)
         except Exception:
             pass
-
+        
         # Get existing nodes as examples
         examples = []
         try:
@@ -156,9 +235,8 @@ class TrainAgent(BaseAgent):
                 })
         except Exception:
             pass
-
-        # Build documentation
-        doc = {
+        
+        return {
             "type": "node",
             "machine_name": machine_name,
             "label": ct["label"],
@@ -169,9 +247,9 @@ class TrainAgent(BaseAgent):
             "api_create_endpoint": f"jsonapi/node/{machine_name}",
             "api_payload_example": self._build_example_payload(machine_name, fields),
         }
-        return doc
 
     def _describe_usage(self, machine_name: str, label: str, fields: list) -> str:
+        """Generate usage description."""
         field_names = [f["field_name"] for f in fields]
         descriptions = {
             "article": "Use for blog posts, news items, team bios. Has title, body, image, tags fields.",
@@ -181,20 +259,6 @@ class TrainAgent(BaseAgent):
         if field_names:
             desc += f" Available fields: {', '.join(field_names[:8])}."
         return desc
-
-    def _build_example_payload(self, machine_name: str, fields: list) -> dict:
-        attrs: dict = {"title": f"Example {machine_name.title()}", "status": True}
-        for field in fields:
-            fname = field["field_name"]
-            ftype = field.get("field_type", "")
-            if fname == "body" or ftype == "text_with_summary":
-                attrs["body"] = {"value": "<p>Example content</p>", "format": "basic_html"}
-        return {
-            "data": {
-                "type": f"node--{machine_name}",
-                "attributes": attrs,
-            }
-        }
 
     def _document_via_llm(self, component: str) -> dict:
         """Use LLM to document an unknown component."""

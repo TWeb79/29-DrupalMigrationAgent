@@ -429,16 +429,174 @@ class BaseAgent:
         self._log_cb = cb
 
     async def log(self, message: str, status: str = "active", detail: str = ""):
+        """Enhanced logging with debug information and extended event data."""
+        import time
+        import traceback
+        
+        # Build enhanced event with debug info
+        event = {
+            "type": "log",
+            "agent": self.agent_key,
+            "agent_label": self.label,
+            "message": message,
+            "status": status,
+            "detail": detail,
+            "timestamp": time.time(),
+            "event_version": "2.0",
+            "extended": {
+                "memory_keys_count": 0,
+                "memory_backend": "unknown",
+                "session_id": None,
+                "llm_provider": None,
+                "stack_depth": len(traceback.extract_stack()),
+            }
+        }
+        
+        # Add memory info safely
+        try:
+            if hasattr(shared_memory, '_redis') and shared_memory._redis:
+                event["extended"]["memory_keys_count"] = len(shared_memory._redis.keys("*"))
+                event["extended"]["memory_backend"] = "redis"
+            elif hasattr(shared_memory, '_local'):
+                event["extended"]["memory_keys_count"] = len(shared_memory._local)
+                event["extended"]["memory_backend"] = "local"
+        except:
+            pass
+        
         if self._log_cb:
-            await self._log_cb({
-                "type": "log",
-                "agent": self.agent_key,
-                "message": message,
-                "status": status,
-                "detail": detail,
-            })
+            await self._log_cb(event)
         else:
-            print(f"[{self.label}] {message}")
+            print(f"[{self.label}] [{status.upper()}] {message}")
+            if detail:
+                print(f"       └─ {detail}")
+
+    async def log_extended(self, event_type: str, data: dict, status: str = "active"):
+        """Log an extended event with structured data for UI visualization."""
+        import time
+        
+        event = {
+            "type": event_type,
+            "agent": self.agent_key,
+            "agent_label": self.label,
+            "timestamp": time.time(),
+            "status": status,
+            "event_version": "2.0",
+            "data": data,
+        }
+        
+        if self._log_cb:
+            await self._log_cb(event)
+
+    async def log_progress(self, current: int, total: int, label: str = ""):
+        """Log progress with percentage for UI progress bar."""
+        percentage = int((current / max(total, 1)) * 100)
+        await self.log_extended(
+            "progress",
+            {
+                "current": current,
+                "total": total,
+                "percentage": percentage,
+                "label": label,
+                "progress_bar": f"[{('█' * int(percentage/10)).ljust(10)}] {percentage}%"
+            }
+        )
+
+    async def log_metric(self, name: str, value: float, unit: str = "", category: str = "general"):
+        """Log a metric value for tracking."""
+        await self.log_extended(
+            "metric",
+            {
+                "name": name,
+                "value": value,
+                "unit": unit,
+                "category": category,
+                "formatted": f"{name}: {value}{unit}"
+            }
+        )
+
+    async def log_check(self, check_name: str, passed: bool, message: str = "", severity: str = "info"):
+        """Log a check result with pass/fail status."""
+        await self.log_extended(
+            "check",
+            {
+                "name": check_name,
+                "passed": passed,
+                "message": message,
+                "severity": severity,
+                "icon": "✓" if passed else "✗"
+            }
+        )
+
+    async def log_data(self, data_type: str, data: dict, summary: str = ""):
+        """Log structured data for UI to display."""
+        await self.log_extended(
+            "data",
+            {
+                "data_type": data_type,
+                "data": data,
+                "summary": summary,
+                "keys": list(data.keys()) if isinstance(data, dict) else []
+            }
+        )
+
+    async def log_warning(self, warning: str, context: dict = None):
+        """Log a warning with context."""
+        await self.log_extended(
+            "warning",
+            {
+                "warning": warning,
+                "context": context or {},
+                "icon": "⚠️"
+            }
+        )
+
+    async def log_image(self, image_url: str, label: str = "", width: int = 100):
+        """
+        Log an image for display in the UI.
+        The image will be shown as a small preview (width px) in the expandable log.
+        Clicking will open it in a new window.
+        
+        Supports:
+        - HTTP URLs (displayed directly)
+        - Base64 data URLs (data:image/png;base64,...)
+        - Local file paths (not accessible from browser, logs a note)
+        """
+        # Check if it's a data URL (base64)
+        if image_url and image_url.startswith('data:'):
+            # It's a base64 data URL - send to UI for display
+            await self.log_extended(
+                "image",
+                {
+                    "image_url": image_url,
+                    "label": label,
+                    "preview_width": width,
+                    "is_base64": True,
+                }
+            )
+            return
+        
+        # Check if it's a local file path
+        if image_url and not image_url.startswith('http'):
+            # Log that screenshot was captured but can't be displayed in UI
+            await self.log_extended(
+                "screenshot_captured",
+                {
+                    "image_path": image_url,
+                    "label": label,
+                    "note": "Screenshot saved locally. Use VisualDiffAgent to view differences.",
+                }
+            )
+            return
+        
+        # It's an HTTP URL
+        await self.log_extended(
+            "image",
+            {
+                "image_url": image_url,
+                "label": label,
+                "preview_width": width,
+            }
+        )
 
     async def log_done(self, message: str, detail: str = ""):
         await self.log(message, status="done", detail=detail)

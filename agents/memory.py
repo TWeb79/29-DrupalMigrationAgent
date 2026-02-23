@@ -6,7 +6,10 @@ Falls back to in-memory dict if Redis is unavailable.
 import os
 import json
 import time
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import redis
@@ -128,12 +131,24 @@ class MemoryStore:
         self.set("build_plan", plan)
 
     def update_task_status(self, task_id: int, status: str, detail: str = ""):
-        plan = self.get_build_plan() or {"tasks": []}
-        for task in plan.get("tasks", []):
-            if task["id"] == task_id:
+        plan = self.get_build_plan()
+        
+        # Ensure plan is a dict
+        if not isinstance(plan, dict):
+            logger.warning(f"build_plan is not a dict: {type(plan)}, recreating")
+            plan = {"tasks": []}
+        
+        tasks = plan.get("tasks", [])
+        if not isinstance(tasks, list):
+            tasks = []
+            
+        for task in tasks:
+            if isinstance(task, dict) and task.get("id") == task_id:
                 task["status"] = status
                 task["detail"] = detail
                 break
+        
+        plan["tasks"] = tasks
         self.set_build_plan(plan)
 
     def get_test_report(self) -> Optional[dict]:
@@ -149,10 +164,148 @@ class MemoryStore:
         self.set("qa_report", report)
 
     def clear_job(self, job_id: str = None):
-        """Clear all memory for a job (or all memory)."""
-        keys = self.list_keys()
-        for key in keys:
-            self.delete(key)
+        """Clear memory for a specific job, or all if no job_id provided."""
+        if job_id:
+            # Only clear keys related to this job
+            prefix = f"job_{job_id}"
+            keys = self.list_keys(prefix)
+            for key in keys:
+                self.delete(key)
+        else:
+            # Clear all memory
+            keys = self.list_keys()
+            for key in keys:
+                self.delete(key)
+
+    # ── v2: Capability Envelopes (ProbeAgent) ───────────────────
+
+    def get_capability_envelope(self, component: str) -> Optional[dict]:
+        """Get capability envelope for a specific component."""
+        return self.get(f"capability_envelopes/{component}")
+
+    def set_capability_envelope(self, component: str, envelope: dict):
+        """Store capability envelope for a component (persists in Redis)."""
+        self.set(f"capability_envelopes/{component}", envelope)
+
+    def list_capability_envelopes(self) -> list[str]:
+        """List all available capability envelopes."""
+        return [k.replace("capability_envelopes/", "", 1) for k in self.list_keys("capability_envelopes/")]
+
+    # ── v2: Mapping Manifest (MappingAgent) ────────────────────
+
+    def get_mapping_manifest(self) -> Optional[dict]:
+        """Get the current mapping manifest from MappingAgent."""
+        return self.get("mapping_manifest")
+
+    def set_mapping_manifest(self, manifest: dict):
+        """Store mapping manifest with confidence scores."""
+        self.set("mapping_manifest", manifest)
+
+    def get_mapping_for_element(self, element_id: str) -> Optional[dict]:
+        """Get mapping for a specific source element."""
+        manifest = self.get_mapping_manifest()
+        if manifest and "mappings" in manifest:
+            for m in manifest["mappings"]:
+                if m.get("element_id") == element_id:
+                    return m
+        return None
+
+    # ── v2: Gap Report (QAAgent) ─────────────────────────────────
+
+    def get_gap_report(self) -> Optional[dict]:
+        """Get the current gap report."""
+        return self.get("gap_report")
+
+    def set_gap_report(self, report: dict):
+        """Store gap report with compromises and screenshots."""
+        self.set("gap_report", report)
+
+    def add_gap_item(self, element: str, component: str, fidelity: float, compromise: str):
+        """Add an item to the gap report."""
+        report = self.get_gap_report() or {"items": [], "total_fidelity": 0}
+        report["items"].append({
+            "element": element,
+            "component_used": component,
+            "fidelity_score": fidelity,
+            "compromise": compromise,
+        })
+        # Recalculate average fidelity
+        if report["items"]:
+            scores = [i["fidelity_score"] for i in report["items"]]
+            report["total_fidelity"] = sum(scores) / len(scores)
+        self.set_gap_report(report)
+
+    # ── v2: Global Knowledge Base (Cross-Migration Learning) ──
+
+    def get_global_knowledge(self) -> dict:
+        """Get global knowledge base with learnings from all migrations."""
+        return self.get("global_knowledge_base") or {
+            "successful_mappings": [],
+            "component_tips": [],
+            "failure_patterns": [],
+            "fidelity_benchmarks": {},
+        }
+
+    def add_successful_mapping(self, source_element: str, drupal_component: str, tips: list):
+        """Record a successful mapping for future reference."""
+        knowledge = self.get_global_knowledge()
+        knowledge["successful_mappings"].append({
+            "source_element": source_element,
+            "drupal_component": drupal_component,
+            "tips": tips,
+            "timestamp": time.time(),
+        })
+        # Keep only last 100 learnings
+        if len(knowledge["successful_mappings"]) > 100:
+            knowledge["successful_mappings"] = knowledge["successful_mappings"][-100:]
+        self.set("global_knowledge_base", knowledge)
+
+    def add_failure_pattern(self, pattern: str, root_cause: str, solution: str):
+        """Record a failure pattern and its solution."""
+        knowledge = self.get_global_knowledge()
+        knowledge["failure_patterns"].append({
+            "pattern": pattern,
+            "root_cause": root_cause,
+            "solution": solution,
+            "timestamp": time.time(),
+        })
+        if len(knowledge["failure_patterns"]) > 50:
+            knowledge["failure_patterns"] = knowledge["failure_patterns"][-50:]
+        self.set("global_knowledge_base", knowledge)
+
+    # ── v2: Visual Diff Results ──────────────────────────────────
+
+    def get_visual_diff(self, scope: str) -> Optional[dict]:
+        """Get visual diff results for a component or page scope."""
+        return self.get(f"visual_diff/{scope}")
+
+    def set_visual_diff(self, scope: str, diff_result: dict):
+        """Store visual diff result (component or page)."""
+        self.set(f"visual_diff/{scope}", diff_result)
+
+    # ── v2: Human Review State ───────────────────────────────────
+
+    def get_review_decisions(self) -> dict:
+        """Get human review decisions for gap report items."""
+        return self.get("review_decisions") or {}
+
+    def set_review_decision(self, item_id: str, decision: str, detail: str = ""):
+        """Store a review decision (accept/request_alternative/exclude/manual)."""
+        decisions = self.get_review_decisions()
+        decisions[item_id] = {
+            "decision": decision,
+            "detail": detail,
+            "timestamp": time.time(),
+        }
+        self.set("review_decisions", decisions)
+
+    def all_review_items_decided(self) -> bool:
+        """Check if all gap report items have been reviewed."""
+        report = self.get_gap_report()
+        decisions = self.get_review_decisions()
+        if not report or not report.get("items"):
+            return True  # No items = nothing to review
+        return len(decisions) >= len(report["items"])
 
 
 # Singleton instance shared across agents in the same process

@@ -20,5 +20,10 @@ lxml==5.2.1
 # State / memory
 redis==5.0.4
 
+# v2: Visual diff (optional)
+playwright==1.42.0
+imagehash==4.3.1
+Pillow==10.3.0
+
 # Utilities
 python-dotenv==1.0.1

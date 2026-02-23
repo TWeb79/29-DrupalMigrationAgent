@@ -175,7 +175,9 @@ export default function DrupalMind() {
             agent: data.agent, 
             msg: data.message, 
             status: data.status || 'active', 
-            detail: data.detail || '' 
+            detail: data.detail || '',
+            event_data: data.event_data || data.data || null,
+            data_type: data.data?.data_type || null
           }]);
         } else if (data.type === 'started') {
           setBuildStatus('running');
@@ -531,6 +533,31 @@ export default function DrupalMind() {
                       fontSize: 11, color: t.textSecondary, fontFamily: "DM Mono, monospace",
                     }}>
                       {log.detail}
+                      {/* Render images if present in event data */}
+                      {log.event_data && log.event_data.image_url && (
+                        <div style={{ marginTop: 8 }}>
+                          {log.event_data.label && (
+                            <div style={{ marginBottom: 4, fontSize: 10, color: t.textMuted }}>
+                              {log.event_data.label}
+                            </div>
+                          )}
+                          <img 
+                            src={log.event_data.image_url} 
+                            alt={log.event_data.label || "Screenshot"}
+                            style={{ 
+                              width: log.event_data.preview_width || 100, 
+                              cursor: 'pointer',
+                              borderRadius: 4,
+                              border: `1px solid ${t.border}`,
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(log.event_data.image_url, '_blank');
+                            }}
+                            title="Click to open in new window"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
