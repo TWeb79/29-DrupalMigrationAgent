@@ -27,6 +27,14 @@ except ImportError:
     MEDIA_MIGRATOR_AVAILABLE = False
     logger.warning("MediaMigrator not available - media migration disabled")
 
+# Import component templates
+try:
+    from component_templates import create_template_library
+    TEMPLATES_AVAILABLE = True
+except ImportError:
+    TEMPLATES_AVAILABLE = False
+    logger.warning("Component templates not available")
+
 
 class ThemeAgent(BaseAgent):
     def __init__(self):
@@ -193,10 +201,22 @@ nav a {{
 
 class ContentAgent(BaseAgent):
     """Migrates actual content from source site into Drupal.
-    v2: Uses capability envelopes to apply field-level constraints proactively."""
+    v2: Uses capability envelopes to apply field-level constraints proactively.
+    v4: Uses component templates for structured content."""
 
     def __init__(self):
         super().__init__("content", "ContentAgent")
+        # Initialize template library
+        self.template_library = None
+        if TEMPLATES_AVAILABLE:
+            try:
+                self.template_library = create_template_library()
+                logger.info("[CONTENT] Template library initialized")
+            except Exception as e:
+                logger.warning(f"[CONTENT] Failed to initialize template library: {e}")
+        
+        # Initialize media migrator placeholder (will be created per-migration)
+        self.media_migrator = None
 
     async def migrate_content(self) -> dict:
         await self.log("Starting content migration...")
@@ -293,9 +313,10 @@ class ContentAgent(BaseAgent):
                 logger.warning(f"[CONTENT] Error creating taxonomy terms: {e}")
 
         # Create article nodes from blog sections with field constraints
+        # v4 FIX: Migrate ALL section types, not just blog/team/testimonials
         sections = blueprint.get("sections", [])
-        sections_to_migrate = [s for s in sections if s.get("type") in ("blog", "team", "testimonials")]
-        logger.info(f"[CONTENT] Found {len(sections_to_migrate)} sections to migrate (blog/team/testimonials)")
+        sections_to_migrate = [s for s in sections if s.get("type") not in (None, "navigation", "footer")]
+        logger.info(f"[CONTENT] Found {len(sections_to_migrate)} sections to migrate (all types except navigation/footer)")
         
         for i, section in enumerate(sections_to_migrate):
             try:

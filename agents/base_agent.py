@@ -604,6 +604,132 @@ class BaseAgent:
     async def log_error(self, message: str, detail: str = ""):
         await self.log(message, status="error", detail=detail)
 
+    # ── Enhanced Logging Methods (v4) ─────────────────────────────────
+
+    async def log_step(self, step_number: int, total_steps: int, title: str, details: dict = None):
+        """Log a numbered step in a multi-step process."""
+        await self.log_extended("step", {
+            "step": step_number,
+            "total_steps": total_steps,
+            "title": title,
+            "details": details or {},
+            "progress_percent": int((step_number / total_steps) * 100),
+            "step_label": f"Step {step_number}/{total_steps}"
+        }, summary=f"Step {step_number}/{total_steps}: {title}")
+
+    async def log_item_processing(
+        self,
+        item_type: str,
+        item_id: str,
+        item_index: int,
+        total_items: int,
+        details: dict = None
+    ):
+        """Log processing of individual item in batch."""
+        # Calculate progress
+        pct = int((item_index / max(total_items, 1)) * 100)
+        filled = int((item_index / max(total_items, 1)) * 20)
+        progress_bar = f"[{'█' * filled}{' ' * (20 - filled)}] {pct}%"
+        await self.log_extended("item_processing", {
+            "item_type": item_type,
+            "item_id": item_id,
+            "index": item_index,
+            "total": total_items,
+            "progress_percent": pct,
+            "progress_bar": progress_bar,
+            "details": details or {},
+        }, summary=f"{item_type} {item_index}/{total_items}: {item_id}")
+
+    async def log_field_migration(
+        self,
+        field_name: str,
+        field_type: str,
+        value_preview: str,
+        status: str = "success",
+        error: str = None
+    ):
+        """Log migration of a single field."""
+        icon = "✓" if status == "success" else "⚠️" if status == "warning" else "✕"
+        await self.log_extended("field_migration", {
+            "field_name": field_name,
+            "field_type": field_type,
+            "value_preview": value_preview[:100] if value_preview else "",
+            "status": status,
+            "error": error,
+            "icon": icon,
+        })
+
+    async def log_batch_result(
+        self,
+        batch_name: str,
+        total: int,
+        successful: int,
+        failed: int,
+        warnings: int = 0
+    ):
+        """Log results of batch operation."""
+        success_rate = (successful / max(total, 1)) * 100
+        status = "success" if failed == 0 else "partial" if failed < total else "failed"
+        await self.log_extended("batch_result", {
+            "batch_name": batch_name,
+            "total": total,
+            "successful": successful,
+            "failed": failed,
+            "warnings": warnings,
+            "success_rate": f"{success_rate:.1f}%",
+            "status": status,
+        }, summary=f"{batch_name}: {successful}/{total} successful ({success_rate:.0f}%)")
+
+    async def log_validation_result(
+        self,
+        item_id: str,
+        is_valid: bool,
+        issues: list = None,
+        warnings: list = None
+    ):
+        """Log validation results for an item."""
+        await self.log_extended("validation_result", {
+            "item_id": item_id,
+            "is_valid": is_valid,
+            "issues": issues or [],
+            "warnings": warnings or [],
+            "issue_count": len(issues or []),
+            "warning_count": len(warnings or []),
+            "status": "pass" if is_valid else "fail",
+        })
+
+    async def log_template_application(
+        self,
+        template_id: str,
+        item_id: str,
+        result: str,
+        details: dict = None
+    ):
+        """Log application of a template."""
+        icon = "✓" if result == "success" else "⚠️" if result == "partial" else "→"
+        await self.log_extended("template_application", {
+            "template_id": template_id,
+            "item_id": item_id,
+            "result": result,
+            "details": details or {},
+            "icon": icon,
+        })
+
+    async def log_media_item(
+        self,
+        url: str,
+        status: str,
+        details: dict = None
+    ):
+        """Log processing of a media item."""
+        icon = "⬇️" if status == "downloaded" else "⬆️" if status == "uploaded" else "✕"
+        await self.log_extended("media_item", {
+            "url": url[:100] if url else "",
+            "status": status,
+            "details": details or {},
+            "icon": icon,
+        })
+
     # ── Tool-use loop ─────────────────────────────────────────
 
     def call_llm_with_tools(

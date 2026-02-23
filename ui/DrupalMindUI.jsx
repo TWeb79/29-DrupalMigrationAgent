@@ -227,6 +227,10 @@ export default function DrupalMind() {
         body: JSON.stringify({ source: url, mode: mode })
       });
       
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
       console.log('[API] Build started:', data);
       setJobId(data.job_id);
@@ -235,6 +239,9 @@ export default function DrupalMind() {
       console.error('[API] Error starting build:', error);
       setBuildStatus('error');
       setStarted(false);
+      // Show user-friendly error message
+      const errorMsg = error.message || 'Failed to connect to server';
+      alert(`Failed to start build: ${errorMsg}\n\nMake sure Docker containers are running:\ndocker-compose up -d`);
     }
   };
 

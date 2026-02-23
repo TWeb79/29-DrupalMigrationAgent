@@ -95,6 +95,39 @@ async def get_build(job_id: str):
     return {**jobs[job_id], "result": memory.get(f"job_{job_id}_result")}
 
 
+@app.get("/build/{job_id}/content-stats")
+async def get_content_migration_stats(job_id: str):
+    """Get detailed content migration statistics."""
+    if job_id not in jobs:
+        raise HTTPException(404, "Job not found")
+    
+    # Get migration result from memory
+    result = memory.get(f"job_{job_id}_result")
+    
+    if not result:
+        return {
+            "job_id": job_id,
+            "status": "no_result",
+            "message": "No migration result available yet"
+        }
+    
+    # Extract content stats from result
+    stats = {
+        "job_id": job_id,
+        "status": result.get("status", "unknown"),
+        "content_types": result.get("content_types", []),
+        "total_nodes": result.get("total_nodes", 0),
+        "successful_migrations": result.get("successful_migrations", 0),
+        "failed_migrations": result.get("failed_migrations", 0),
+        "media_files": result.get("media_files", {}),
+        "templates_used": result.get("templates_used", []),
+        "validation_errors": result.get("validation_errors", []),
+        "warnings": result.get("warnings", []),
+    }
+    
+    return stats
+
+
 @app.get("/jobs")
 async def list_jobs():
     return {"jobs": list(jobs.values())}

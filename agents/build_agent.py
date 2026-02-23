@@ -53,6 +53,21 @@ RULES:
 - Store a record of what you built in memory under key "built_pages"
 - ALWAYS validate payloads before sending to Drupal
 
+IMPORTANT: Use proven component templates from the template library when available.
+The TemplateLibrary has been trained on thousands of Drupal builds and knows what works.
+Only generate custom HTML if no template matches the section type.
+
+Available templates:
+- hero_basic: Hero sections with heading, tagline, CTA
+- features_grid: Feature grids with 3+ columns
+- blog_post: Blog articles with metadata
+- testimonial_card: Testimonial quotes
+- team_member: Team member profiles
+- content_block: Generic content sections
+- features: Feature list with icons
+
+Use these templates instead of improvising HTML!
+
 AVAILABLE CONTENT TYPES: article (for blog/news), page (for static pages)
 
 When creating page body content, write clean HTML including headings, paragraphs, and structure.

@@ -333,7 +333,13 @@ class OrchestratorAgent:
             # ── Phase 2: Analysis ──────────────────────────────────
             logger.info("PHASE 2: ANALYSIS - Starting...")
             await self._mark_task(2, "active")
-            blueprint = await self.analyzer.analyze(source, mode)
+            try:
+                blueprint = await self.analyzer.analyze(source, mode)
+                report.add_completed_phase("analysis")
+            except Exception as e:
+                report.add_failed_phase("analysis", str(e))
+                report.add_warning(f"Analysis failed (non-blocking): {str(e)}")
+                blueprint = {"pages": []}
             
             # Ensure blueprint is a dict
             if not isinstance(blueprint, dict):
@@ -346,14 +352,25 @@ class OrchestratorAgent:
             # ── Phase 3: Training ──────────────────────────────────
             logger.info("PHASE 3: TRAINING - Starting...")
             await self._mark_task(3, "active")
-            await self.trainer.train()
+            try:
+                await self.trainer.train()
+                report.add_completed_phase("training")
+            except Exception as e:
+                report.add_failed_phase("training", str(e))
+                report.add_warning(f"Training failed (non-blocking): {str(e)}")
             await self._mark_task(3, "done", f"{len(memory.list_components())} components documented")
             logger.info(f"PHASE 3: TRAINING - Complete")
 
             # ── Phase 4: Mapping ───────────────────────────────────
             logger.info("PHASE 4: MAPPING - Starting...")
             await self._mark_task(4, "active")
-            mapping_result = await self.mapper.create_mapping()
+            try:
+                mapping_result = await self.mapper.create_mapping()
+                report.add_completed_phase("mapping")
+            except Exception as e:
+                report.add_failed_phase("mapping", str(e))
+                report.add_warning(f"Mapping failed (non-blocking): {str(e)}")
+                mapping_result = {"statistics": {}, "error": "Invalid mapping result"}
             
             # Ensure mapping_result is a dict
             if not isinstance(mapping_result, dict):
@@ -366,7 +383,13 @@ class OrchestratorAgent:
             # ── Phase 5: Build ────────────────────────────────────
             logger.info("PHASE 5: BUILD - Starting...")
             await self._mark_task(5, "active")
-            build_result = await self.builder.build_site()
+            try:
+                build_result = await self.builder.build_site()
+                report.add_completed_phase("build")
+            except Exception as e:
+                report.add_failed_phase("build", str(e))
+                report.add_warning(f"Build failed (non-blocking): {str(e)}")
+                build_result = {}
             built_pages = memory.get_or_default("built_pages", [])
             
             # Ensure built_pages is a list (defensive)
@@ -387,14 +410,26 @@ class OrchestratorAgent:
             # ── Phase 6: Theme ────────────────────────────────────
             logger.info("PHASE 6: THEME - Starting...")
             await self._mark_task(6, "active")
-            theme_result = await self.themer.apply_theme()
+            try:
+                theme_result = await self.themer.apply_theme()
+                report.add_completed_phase("theme")
+            except Exception as e:
+                report.add_failed_phase("theme", str(e))
+                report.add_warning(f"Theme failed (non-blocking): {str(e)}")
+                theme_result = {}
             await self._mark_task(6, "done", "CSS applied")
             logger.info("PHASE 6: THEME - Complete")
 
             # ── Phase 7: Content ──────────────────────────────────
             logger.info("PHASE 7: CONTENT - Starting...")
             await self._mark_task(7, "active")
-            content_result = await self.content.migrate_content()
+            try:
+                content_result = await self.content.migrate_content()
+                report.add_completed_phase("content")
+            except Exception as e:
+                report.add_failed_phase("content", str(e))
+                report.add_warning(f"Content migration failed (non-blocking): {str(e)}")
+                content_result = {"created": 0}
             
             # Ensure content_result is a dict
             if not isinstance(content_result, dict):
@@ -407,7 +442,13 @@ class OrchestratorAgent:
             # ── Phase 8: Test ─────────────────────────────────────
             logger.info("PHASE 8: TEST - Starting...")
             await self._mark_task(8, "active")
-            test_result = await self.tester.run_tests()
+            try:
+                test_result = await self.tester.run_tests()
+                report.add_completed_phase("test")
+            except Exception as e:
+                report.add_failed_phase("test", str(e))
+                report.add_warning(f"Test failed (non-blocking): {str(e)}")
+                test_result = {"overall_score": 0, "ready_for_qa": False}
             
             # Ensure test_result is a dict
             if not isinstance(test_result, dict):
@@ -420,11 +461,12 @@ class OrchestratorAgent:
 
             # ── Phase 9: QA ───────────────────────────────────────
             await self._mark_task(9, "active")
-            qa_result = await self.qa.run_qa()
-            
-            # Ensure qa_result is a dict
-            if not isinstance(qa_result, dict):
-                logger.warning(f"qa_result is not a dict: {type(qa_result)}, using default")
+            try:
+                qa_result = await self.qa.run_qa()
+                report.add_completed_phase("qa")
+            except Exception as e:
+                report.add_failed_phase("qa", str(e))
+                report.add_warning(f"QA failed (non-blocking): {str(e)}")
                 qa_result = {"score": 0}
             
             await self._mark_task(9, "done", f"{qa_result.get('score', 0)}% QA score")
